@@ -56,7 +56,7 @@ class FacesApp():
             choice = choice + 1 if choice < len(self.choices)-1 else 0
         self.choice = choice
 
-        mute = wasp.watch.display.mute
+        mute = wasp.watch.drawable.mute
         mute(True)
         self._update()
         mute(False)

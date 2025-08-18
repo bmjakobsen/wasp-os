@@ -93,7 +93,7 @@ class StepCounterApp():
         else:
             self._page += 1
 
-        mute = wasp.watch.display.mute
+        mute = wasp.watch.drawable.mute
         mute(True)
         self._draw()
         mute(False)

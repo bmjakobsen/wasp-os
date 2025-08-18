@@ -151,7 +151,7 @@ class PomodoroApp():
 
     def touch(self, event):
         if self.state == _RINGING:
-            mute = wasp.watch.display.mute
+            mute = wasp.watch.drawable.mute
             mute(False)
         elif self.state == _RUNNING:
             if self.btn_stop.touch(event):

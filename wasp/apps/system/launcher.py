@@ -42,9 +42,9 @@ class LauncherApp():
                 return
 
         self._page = i
-        wasp.watch.display.mute(True)
+        wasp.watch.drawable.mute(True)
         self._draw()
-        wasp.watch.display.mute(False)
+        wasp.watch.drawable.mute(False)
 
     def touch(self, event):
         page = self._get_page(self._page)

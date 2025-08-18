@@ -118,6 +118,12 @@ class Draw565(object):
         self._display = display
         self.reset()
 
+    def mute(self, *args):
+        self._display.mute(*args)
+
+    def invert(self, *args):
+        self._display.invert(*args)
+
     def reset(self):
         """Restore the default colours and font.
 

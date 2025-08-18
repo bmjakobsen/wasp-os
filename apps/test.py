@@ -219,8 +219,8 @@ class TestApp():
 
     def _draw(self):
         """Redraw the display from scratch."""
-        wasp.watch.display.mute(True)
         draw = wasp.watch.drawable
+        draw.mute()
         draw.fill()
         draw.set_font(fonts.sans24)
         draw.string('{} test'.format(self.test),
@@ -254,7 +254,7 @@ class TestApp():
             draw.blit(self.ICON, 120-48, 120-32)
 
         self.scroll.draw()
-        wasp.watch.display.mute(False)
+        draw.mute(False)
 
     def _update_colours(self):
         draw = wasp.watch.drawable

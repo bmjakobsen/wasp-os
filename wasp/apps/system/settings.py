@@ -91,9 +91,8 @@ class SettingsApp():
     def _draw(self):
         """Redraw the display from scratch."""
         draw = wasp.watch.drawable
-        mute = wasp.watch.display.mute
         self._current_setting = self._settings[self._sett_index % len(self._settings)]
-        mute(True)
+        draw.mute(True)
         draw.fill()
         draw.set_color(wasp.system.theme('bright'))
         draw.set_font(fonts.sans24)
@@ -124,7 +123,7 @@ class SettingsApp():
             self._units_toggle.draw()
         self._scroll_indicator.draw()
         self._update()
-        mute(False)
+        draw.mute(False)
 
     def _update(self):
         draw = wasp.watch.drawable

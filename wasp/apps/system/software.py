@@ -102,7 +102,7 @@ class SoftwareApp():
             page = page + 1 if page < pages else 0
         self.page = page
 
-        mute = wasp.watch.display.mute
+        mute = wasp.watch.drawable.mute
         mute(True)
         self._draw()
         mute(False)

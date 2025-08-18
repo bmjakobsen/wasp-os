@@ -155,7 +155,7 @@ class Manager():
 
             # System start up...
             watch.display.poweron()
-            watch.display.mute(True)
+            watch.drawable.mute(True)
             watch.backlight.set(self._brightness)
             self.sleep_at = watch.rtc.uptime + 90
             if watch.free:
@@ -267,10 +267,10 @@ class Manager():
         self.tick_expiry = None
 
         self.app = app
-        watch.display.mute(True)
+        watch.drawable.mute(True)
         watch.drawable.reset()
         app.foreground()
-        watch.display.mute(False)
+        watch.drawable.mute(False)
 
     def navigate(self, direction=None):
         """Navigate to a new application.

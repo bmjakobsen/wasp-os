@@ -57,10 +57,9 @@ class PagerApp():
 
     def _draw(self):
         """Draw a page from scratch."""
-        mute = wasp.watch.display.mute
         draw = wasp.watch.drawable
 
-        mute(True)
+        draw.mute(True)
         draw.set_color(0xffff)
         draw.fill()
 
@@ -77,7 +76,7 @@ class PagerApp():
         scroll.down = page < self._numpages
         scroll.draw()
 
-        mute(False)
+        draw.mute(False)
 
 class NotificationApp(PagerApp):
     NAME = 'Notifications'
@@ -148,7 +147,7 @@ class CrashApp():
         If you owned an Atari ST back in the mid-eighties then I hope you
         recognise this as a tribute a long forgotten home computer!
         """
-        wasp.watch.display.invert(False)
+        wasp.watch.drawable.invert(False)
         draw = wasp.watch.drawable
         draw.blit(icons.bomb, 0, 104)
         draw.blit(icons.bomb, 32, 104)
@@ -162,8 +161,8 @@ class CrashApp():
         Conceal the display before the transition otherwise the inverted
         bombs get noticed by the user.
         """
-        wasp.watch.display.mute(True)
-        wasp.watch.display.invert(True)
+        wasp.watch.drawable.mute(True)
+        wasp.watch.drawable.invert(True)
 
     def swipe(self, event):
         """Show the exception message in a pager."""

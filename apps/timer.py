@@ -89,7 +89,7 @@ class TimerApp():
     def touch(self, event):
         """Notify the application of a touchscreen touch event."""
         if self.state == _RINGING:
-            mute = wasp.watch.display.mute
+            mute = wasp.watch.drawable.mute
             mute(True)
             self._stop()
             mute(False)

@@ -556,16 +556,15 @@ class ConfirmationView:
 
     def draw(self, message):
         draw = wasp.watch.drawable
-        mute = wasp.watch.display.mute
 
-        mute(True)
+        draw.mute(True)
         draw.set_color(wasp.system.theme('bright'))
         draw.set_font(fonts.sans24)
         draw.fill()
         draw.string(message, 0, 60)
         self._yes.draw()
         self._no.draw()
-        mute(False)
+        draw.mute(False)
 
         self.active = True
 
