@@ -38,6 +38,7 @@ submodules :
 	(cd micropython/ports/nrf; $(MAKE) submodules)
 	(cd reloader; git submodule update --init)
 	(cd wasp/modules/bma42x-upy; git submodule update --init)
+	(cd wasp/modules/screenbuf; git submodule update --init)
 
 bootloader: build-$(BOARD_SAFE)
 	$(RM) bootloader/_build-$(BOARD)_nrf52832//$(BOARD)_nrf52832_bootloader-*-nosd.hex

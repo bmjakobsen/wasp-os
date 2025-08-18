@@ -9,6 +9,7 @@ import array
 import fonts.sans24
 import math
 import micropython
+import screenbuf
 
 from micropython import const
 
@@ -116,6 +117,7 @@ class Draw565(object):
         and 24pt Sans Serif text.
         """
         self._display = display
+        self._sb = screenbuf.init_screenbuf(self._display.width, self._display.height)
         self.reset()
 
     def mute(self, *args):
