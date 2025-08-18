@@ -3,24 +3,80 @@
 #include <string.h>
 
 
+
+
+
 #define MAX_SCREEN_DIMENSION 8000
-static unsigned int SCREEN_WIDTH = 240;
-static unsigned int SCREEN_HEIGHT = 240;
-static uint16_t *buffer = NULL;
+static int SCREEN_WIDTH = 240;
+static int SCREEN_HEIGHT = 240;
+static unsigned char *buffer = NULL;
+static uint16_t *line_buffer = NULL;
 
 
 
 
 
 
-static void rawblit(mp_obj_t scb, mp_obj_t)
+static inline void _rawblit(bool line_advance, unsigned char *raw_data, mp_obj_t mpx, mp_obj_t mpy, const int w, mp_obj_t mph) {
+        const int x = (int) mp_obj_get_int(mpx);
+        const int y = (int) mp_obj_get_int(mpy);
+        const int h = (int) mp_obj_get_int(mph);
+
+	if (x >= SCREEN_WIDTH)
+		return;
+	if (y >= SCREEN_HEIGHT)
+		return;
+	unsigned char *raw_data = o->items;
+	int max_x = x+w-1;
+	int skip_x = 0;
+	if (max_x >= SCREEN_WIDTH) {
+		w2 = w + (SCREEN_WIDTH-1-max_x);
+		skip_x = w-w2;
+		w = w2;
+		max_x = SCREEN_HEIGHT-1;
+	}
+	int max_y = y+h-1;
+	if (max_y >= SCREEN_HEIGHT) {
+		h = h + (SCREEN_HEIGHT-1-max_y);
+		max_y = SCREEN_HEIGHT-1;
+	}
+
+	unsigned char *input = raw_data;
+	unsigned char *output = buffer+x;
+	const int input_line_bytes = (w+skip_x)*2;
+	const int output_line_bytes = (line_advance ? SCREEN_WIDTH*2 : 0);
+	for (unsigned int row = y; row <= max_y; row++) {
+		memcpy(output, input, w);
+		input += input_line_bytes;
+		output += output_line_bytes;
+	}
+}
+
+
+
+
+static void rawblit(mp_obj_t data, mp_obj_t mpx, mp_obj_t mpy, mp_obj_t mpw, mp_obj_t mph) {
+	mp_obj_array_t *o = MP_OBJ_TO_PTR(data);
+	const int w = (int) mp_obj_get_int(mpw);
+	unsigned char *raw_data = o->items;
+	_rawblit(1, raw_data, mpx, mpy, w, mph)
+}
+
+static void fill(mp_obj_t col, mp_obj_t mpx, mp_obj_t mpy, mp_obj_t mpw, mp_obj_t mph) {
+	uint16_t color = (uint16_t) (mp_obj_get_int(y)&0xFFFF)
+	const int w = (int) mp_obj_get_int(mpw);
+	for (int i = 0; i < w; i++) {
+		line_buffer[i] = color;
+	}
+	_rawblit(0, line_buffer, mpx, mpy, w, mph)
+}
 
 
 
 
 static mp_obj_t init_screenbuf(mp_obj_t width, mp_obj_t height) {
-	const mp_obj_get_int mpw = mp_obj_get_int(width);
-	const mp_obj_get_int mph = mp_obj_get_int(height);
+	const mp_int_t mp_obj_get_int mpw = mp_obj_get_int(width);
+	const mp_int_t mp_obj_get_int mph = mp_obj_get_int(height);
 	if (mpw > MAX_SCREEN_DIMENSION || mph > MAX_SCREEN_DIMENSION) {
 		return mp_const_true;
 	}
@@ -32,7 +88,7 @@ static mp_obj_t init_screenbuf(mp_obj_t width, mp_obj_t height) {
 	}
 
 	size_t bufsize = w*h*2;
-	void *new_buffer = m_malloc(w*h*2);
+	void *new_buffer = m_malloc((w+1)*h*2);
 	if (new_buffer == NULL) {
 		return mp_const_true;
 
@@ -41,6 +97,7 @@ static mp_obj_t init_screenbuf(mp_obj_t width, mp_obj_t height) {
 	SCREEN_WIDTH = w;
 	SCREEN_HEIGHT = h;
 	buffer = new_buffer;
+	line_buffer = (uint16_t) (new_buffer+(w*h*2));
 	mp_obj_array_t *o = m_new_obj(mp_obj_array_t);
 	mp_obj_memoryview_init(o, BYTEARRAY_TYPECODE, 0, bufsize, buffer);
 	return MP_OBJ_FROM_PTR(o)
