@@ -118,6 +118,7 @@ class Draw565(object):
         self._display = display
         self.reset()
 
+    @micropython.viper
     def reset(self):
         """Restore the default colours and font.
 
@@ -126,6 +127,7 @@ class Draw565(object):
         self.set_color(0xffff)
         self.set_font(fonts.sans24)
 
+    @micropython.native
     def fill(self, bg=None, x=0, y=0, w=None, h=None):
         """Draw a solid colour rectangle.
 
@@ -273,6 +275,7 @@ class Draw565(object):
                     bp = 0
         display.quick_end()
 
+    @micropython.native
     def set_color(self, color, bg=0):
         """Set the foreground and background colours.
 
@@ -285,6 +288,7 @@ class Draw565(object):
         """
         self._bgfg = (bg << 16) + color
 
+    @micropython.viper
     def set_font(self, font):
         """Set the font used for rendering text.
 
@@ -292,6 +296,7 @@ class Draw565(object):
         """
         self._font = font
 
+    @micropython.native
     def string(self, s, x, y, width=None, right=False):
         """Draw a string at the supplied position.
 
@@ -331,6 +336,7 @@ class Draw565(object):
         if width:
             self.fill(bg, x, y, rightpad, h)
 
+    @micropython.viper
     def bounding_box(self, s):
         """Return the bounding box of a string.
 
@@ -339,7 +345,8 @@ class Draw565(object):
         """
         return _bounding_box(s, self._font)
 
-    def wrap(self, s, width):
+    @micropython.native
+    def wrap(self, s, width:int):
         """Chunk a string so it can rendered within a specified width.
 
         Example:
@@ -391,7 +398,8 @@ class Draw565(object):
 
         return chunks
 
-    def line(self, x0, y0, x1, y1, width=1, color=None):
+    @micropython.native
+    def line(self, x0:int, y0:int, x1:int, y1:int, width:int=1, color=None):
         """Draw a line between points (x0, y0) and (x1, y1).
 
         Example:
@@ -409,7 +417,8 @@ class Draw565(object):
         :param color: Colour to draw line, defaults to the foreground colour
         """
         if color is None:
-            color = self._bgfg & 0xffff
+            raw_bgfg = int(self._bgfg)
+            color = raw_bgfg & 0xffff
         px = bytes(((color >> 8) & 0xFF, color & 0xFF)) * (width * width)
         write_data = self._display.write_data
         set_window = self._display.set_window
@@ -446,6 +455,7 @@ class Draw565(object):
                 err += dx;
                 y0 += sy;
         
+    @micropython.native
     def polar(self, x, y, theta, r0, r1, width=1, color=None):
         """Draw a line using polar coordinates.
 
@@ -480,6 +490,7 @@ class Draw565(object):
 
         self.line(x0, y0, x1, y1, width, color)
 
+    @micropython.native
     def lighten(self, color, step=1):
         """Get a lighter shade from the same palette.
 
@@ -503,6 +514,7 @@ class Draw565(object):
 
         return (r | g | b)
 
+    @micropython.native
     def darken(self, color, step=1):
         """Get a darker shade from the same palette.
 

@@ -36,7 +36,7 @@ class ST7789(object):
 
     .. automethod:: __init__
     """
-    def __init__(self, width, height):
+    def __init__(self, width:int, height:int):
         """Configure the size of the display.
 
         :param int width: Display width, in pixels
@@ -74,16 +74,19 @@ class ST7789(object):
         # that time already elapsed as we zeroed the RAM).
         #sleep_ms(125)
 
+    @micropython.viper
     def poweroff(self):
         """Put the display into sleep mode."""
         self.write_cmd(_SLPIN)
         sleep_ms(125)
 
+    @micropython.viper
     def poweron(self):
         """Wake the display and leave sleep mode."""
         self.write_cmd(_SLPOUT)
         sleep_ms(125)
 
+    @micropython.viper
     def invert(self, invert):
         """Invert the display.
 
@@ -94,6 +97,7 @@ class ST7789(object):
         else:
             self.write_cmd(_INVOFF)
 
+    @micropython.viper
     def mute(self, mute):
         """Mute the display.
 
@@ -106,8 +110,8 @@ class ST7789(object):
         else:
             self.write_cmd(_DISPON)
 
-    @micropython.native
-    def set_window(self, x, y, width, height):
+    @micropython.viper
+    def set_window(self, x:int, y:int, width:int, height:int):
         """Set the clipping rectangle.
 
         All writes to the display will be wrapped at the edges of the rectangle.
@@ -142,6 +146,7 @@ class ST7789(object):
 
         write_cmd(_RAMWR)
 
+    @micropython.viper
     def rawblit(self, buf, x, y, width, height):
         """Blit raw pixels to the display.
 
@@ -156,7 +161,8 @@ class ST7789(object):
         self.set_window(x, y, width, height)
         self.write_data(buf)
 
-    def fill(self, bg, x=0, y=0, w=None, h=None):
+    @micropython.native
+    def fill(self, bg:int, x:int=0, y:int=0, w:int=-1, h:int=-1):
         """Draw a solid colour rectangle.
 
         If no arguments a provided the whole display will be filled with
@@ -170,13 +176,16 @@ class ST7789(object):
         :param h:  Height of the rectangle, defaults to None (which means select
                    the bottom-most pixel of the display)
         """
-        if not w:
-            w = self.width - x
-        if not h:
-            h = self.height - y
+        if w == -1:
+            width2 = int(self.width)
+            w = width2 - x
+        if h == -1:
+            height2 = int(self.height)
+            h = height2 - y
         self.set_window(x, y, w, h)
 
         # Populate the line buffer
+        #buf = ptr8(self.linebuffer)
         buf = self.linebuffer[0:2*w]
         for xi in range(0, 2*w, 2):
             buf[xi] = bg >> 8
@@ -223,6 +232,7 @@ class ST7789_SPI(ST7789):
 
         super().__init__(width, height)
 
+    @micropython.viper
     def reset(self):
         """Reset the display.
 
