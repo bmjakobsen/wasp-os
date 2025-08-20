@@ -125,7 +125,7 @@ class Draw565(object):
         self._fill_bounds_x1 = -1
         self._fill_bounds_y1 = -1
 
-    @micropython.viper
+    @micropython.native
     def reset(self):
         """Restore the default colours and font.
 
