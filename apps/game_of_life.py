@@ -208,7 +208,7 @@ class GameOfLifeApp():
 
     def _draw(self):
         """Draw the display from scratch."""
-        wasp.watch.drawable.fill()
+        wasp.watch.drawable.fill(lazy=False)
         board = self._board
         for i in range(len(board)):
             board[i] = 0

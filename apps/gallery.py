@@ -93,7 +93,7 @@ class GalleryApp():
 
     def _draw(self):
         draw = wasp.watch.drawable
-        draw.fill()
+        draw.fill(lazy=False)
         if not self.files:
             draw.string('No files', 0, 60, width=240)
             draw.string('in gallery/', 0, 98, width=240)
