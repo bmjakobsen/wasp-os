@@ -16,6 +16,8 @@ import micropython
 from micropython import const
 from time import sleep_ms
 
+micropython.opt_level(3)
+
 # register definitions
 _SWRESET            = const(0x01)
 _SLPIN              = const(0x10)
@@ -184,12 +186,15 @@ class ST7789(object):
             h = height2 - y
         self.set_window(x, y, w, h)
 
+        bg = bg & 0xffff
+        bg0 = bg >> 8
+        bg1 = bg & 0xff
+
         # Populate the line buffer
-        #buf = ptr8(self.linebuffer)
-        buf = self.linebuffer[0:2*w]
+        buf = self.linebuffer
         for xi in range(0, 2*w, 2):
-            buf[xi] = bg >> 8
-            buf[xi+1] = bg & 0xff
+            buf[xi] = bg0
+            buf[xi+1] = bg1
 
         # Do the fill
         for yi in range(h):

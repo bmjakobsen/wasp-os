@@ -12,6 +12,8 @@ import micropython
 
 from micropython import const
 
+micropython.opt_level(3)
+
 R = const(0b11111_000000_00000)
 G = const(0b00000_111111_00000)
 B = const(0b00000_000000_11111)

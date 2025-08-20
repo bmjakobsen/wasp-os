@@ -26,3 +26,6 @@ def viper(fn):
 
     return fn
 
+
+def opt_level(*args):
+    return
