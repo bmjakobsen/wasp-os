@@ -232,6 +232,7 @@ class Draw565(object):
         if remaining == 0:
             return
 
+        """
         if x == 0 and y == 0 and w == display_width and h == display_height:
             bounds_x0 = self._fill_bounds_x0
             bounds_y0 = self._fill_bounds_y0
@@ -247,6 +248,7 @@ class Draw565(object):
                 h = self._fill_bounds_y1 - bounds_y0 + 1
         else:
             self.update_bounds_wh(x, y, w, h)
+        """
 
 
 
