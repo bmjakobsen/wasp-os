@@ -253,7 +253,7 @@ class AlarmApp:
         draw = wasp.watch.drawable
 
         draw.set_color(wasp.system.theme('bright'))
-        draw.fill(lazy=False)
+        draw.fill()
         draw.set_font(fonts.sans24)
         draw.string("Alarm", 0, 150, width=240)
         draw.string("Touch to snooze", 0, 180, width=240)
@@ -268,7 +268,7 @@ class AlarmApp:
         draw = wasp.watch.drawable
         alarm = self.alarms[self.page]
 
-        draw.fill(lazy=False)
+        draw.fill()
         self._draw_system_bar()
 
         self.hours_wid.value = alarm[_HOUR_IDX]
@@ -287,7 +287,7 @@ class AlarmApp:
         draw = wasp.watch.drawable
         if update_alarm_row == _HOME_PAGE:
             draw.set_color(wasp.system.theme('bright'))
-            draw.fill(lazy=False)
+            draw.fill()
             self._draw_system_bar()
             draw.line(0, 50, 240, 50, width=1, color=wasp.system.theme('bright'))
 

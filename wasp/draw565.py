@@ -9,6 +9,7 @@ import array
 import fonts.sans24
 import math
 import micropython
+import watchgl
 
 from micropython import const
 
@@ -119,11 +120,6 @@ class Draw565(object):
         """
         self._display = display
         self.reset()
-        self._fill_color = -1
-        self._fill_bounds_x0 = -1
-        self._fill_bounds_y0 = -1
-        self._fill_bounds_x1 = -1
-        self._fill_bounds_y1 = -1
 
     @micropython.native
     def reset(self):
@@ -131,76 +127,13 @@ class Draw565(object):
 
         Default colours are white-on-block (white foreground, black
         background) and the default font is 24pt Sans Serif."""
-        self._fill_color = -1
-        self._fill_bounds_x0 = -1
         self.set_color(0xffff)
         self.set_font(fonts.sans24)
 
 
-    @micropython.native
-    def update_bounds_wh(self, x0:int, y0:int, w:int, h:int):
-        x1 = x0+w-1
-        y1 = y0+h-1
-
-        display_width_m1 = int(self._display.width)-1
-        display_height_m1 = int(self._display.height)-1
-
-        if x0 > x1:
-            x2 = x0
-            x0 = x1
-            x1 = x2
-
-        if y0 > y1:
-            y2 = y0
-            y0 = y1
-            y1 = y2
-
-        if x0 > display_width_m1:
-            return
-        elif x0 < 0:
-            x0 = 0
-
-        if y0 > display_height_m1:
-            return
-        elif y0 < 0:
-            y0 = 0
-
-        if x1 > display_width_m1:
-            x1 = display_width_m1
-        elif x1 < 0:
-            return
-
-        if y1 > display_height_m1:
-            y1 = display_height_m1
-        elif y1 < 0:
-            return
-
-
-        bounds_x0 = int(self._fill_bounds_x0)
-        if bounds_x0 < 0:
-            self._fill_bounds_x0 = x0
-            self._fill_bounds_y0 = y0
-            self._fill_bounds_x1 = x1
-            self._fill_bounds_y1 = y1
-            return
-        bounds_y0 = int(self._fill_bounds_y0)
-        bounds_x1 = int(self._fill_bounds_x1)
-        bounds_y1 = int(self._fill_bounds_y1)
-        if x0 < bounds_x0:
-            self._fill_bounds_x0 = x0
-            pass
-        if y0 < bounds_y0:
-            self._fill_bounds_y0 = y0
-            pass
-        if x1 < bounds_x1:
-            self._fill_bounds_x1 = x1
-            pass
-        if y1 < bounds_y1:
-            self._fill_bounds_y1 = y1
-            pass
 
     @micropython.native
-    def fill(self, bg=None, x=0, y=0, w=None, h=None, lazy=True):
+    def fill(self, bg=None, x=0, y=0, w=None, h=None):
         """Draw a solid colour rectangle.
 
         If no arguments a provided the whole display will be filled with
@@ -213,7 +146,6 @@ class Draw565(object):
                    the right-most pixel of the display)
         :param h:  Height of the rectangle, defaults to None (which means select
                    the bottom-most pixel of the display)
-        :param lazy:  Redraw complete screen or only parts that need to be redrawn.
         """
         display = self._display
         quick_write = display.quick_write
@@ -231,26 +163,6 @@ class Draw565(object):
         remaining = w * h
         if remaining == 0:
             return
-
-        """
-        if x == 0 and y == 0 and w == display_width and h == display_height:
-            bounds_x0 = self._fill_bounds_x0
-            bounds_y0 = self._fill_bounds_y0
-            if self._fill_color != bg or not lazy:
-                self._fill_color = bg
-                self._fill_bounds_x0 = -1
-            elif bounds_x0 < 0:
-                return
-            else:
-                x = bounds_x0
-                y = bounds_y0
-                w = self._fill_bounds_x1 - bounds_x0 + 1
-                h = self._fill_bounds_y1 - bounds_y0 + 1
-        else:
-            self.update_bounds_wh(x, y, w, h)
-        """
-
-
 
         display.set_window(x, y, w, h)
 
@@ -294,7 +206,6 @@ class Draw565(object):
         write_data = display.write_data
         (sx, sy, rle) = image
 
-        self.update_bounds_wh(pos[0], pos[1], sx, sy)
         display.set_window(pos[0], pos[1], sx, sy)
 
         buf = display.linebuffer[0:2*sx]
@@ -326,7 +237,6 @@ class Draw565(object):
         sy = image[2]
         rle = memoryview(image)[3:]
 
-        self.update_bounds_wh(x, y, sx, sy)
         display.set_window(x, y, sx, sy)
 
         if sx <= (len(display.linebuffer) // 4) and not bool(sy & 1):
@@ -428,7 +338,6 @@ class Draw565(object):
             self.fill(bg, x, y, leftpad, text_h)
             x += leftpad
 
-        self.update_bounds_wh(x, y, text_w, text_h)
         for ch in s:
             glyph = font.get_ch(ch)
             _draw_glyph(display, glyph, x, y, bgfg)
@@ -543,7 +452,6 @@ class Draw565(object):
             h = width if dy == 0 else (-dy + width)
             self.fill(color, x0, y0, w, h)
             return
-        self.update_bounds_wh(x0, y0, width, width)
         while True:
             set_window(x0, y0, width, width)
             write_data(px)
@@ -556,7 +464,6 @@ class Draw565(object):
             if e2 <= dx:
                 err += dx;
                 y0 += sy;
-        self.update_bounds_wh(x0, y0, width, width)
         
     @micropython.native
     def polar(self, x, y, theta, r0, r1, width=1, color=None):
