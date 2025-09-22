@@ -398,6 +398,7 @@ class HorizontalCropStream():
 
 _DEFAULT_TEXT_FGCOLOR:int = const(0xFFFF)
 _PALETTE2_INITALIZER = [0, _DEFAULT_TEXT_FGCOLOR]
+_PALETTE4_INITALIZER = [0, 0x4a69, 0x7bef, _DEFAULT_TEXT_FGCOLOR]
 
 
 
@@ -461,8 +462,6 @@ class MonoImageStream():
     def set_color(self, n:int, color:int):
         if n < 0 or n > 1:
             raise Exception("Invalid Palette Index")
-        if n < 0:
-            raise Exception("Negative Color given")
         self._palette[n] = _convert_color_to_format(self._color_format, color)
 
 
@@ -619,12 +618,12 @@ class MonoRleImageStream():
     def set_color(self, n:int, color:int):
         if n < 0 or n > 1:
             raise Exception("Invalid Palette Index")
-        if n < 0:
-            raise Exception("Negative Color given")
         self._palette[n] = _convert_color_to_format(self._color_format, color)
 
     def reset(self):
         # Set State required for reading the image
+
+        raw_data:memoryview = self._raw_data
 
         #Remaining
         self._extra_state[_SX_REMAINING] = self._n_pixels
@@ -684,8 +683,6 @@ class MonoRleImageStream():
         raw_data:ptr8 = ptr8(self._raw_data)
 
         color:int = state[_MRIS_COLOR]
-        color_0:int = palette[color]&0xFF
-        color_1:int = (palette[color]>>8)&0xFF
         rlen:int = state[_MRIS_RLEN]
         index:int = state[_MRIS_INDEX]
 
@@ -694,8 +691,8 @@ class MonoRleImageStream():
             index += 1
             rlen = raw_data[index]
             color = (color+1)&1
-            color_0 = palette[color]&0xFF
-            color_1 = (palette[color]>>8)&0xFF
+        color_0:int = palette[color]&0xFF
+        color_1:int = (palette[color]>>8)&0xFF
 
         n2:int = n
         while n2 > 0:
@@ -708,6 +705,150 @@ class MonoRleImageStream():
                 index += 1
                 rlen = raw_data[index]
                 color = (color+1)&1
+                color_0 = palette[color]&0xFF
+                color_1 = (palette[color]>>8)&0xFF
+
+        state[_SX_REMAINING] = remaining
+        state[_MRIS_COLOR] = color
+        state[_MRIS_RLEN] = rlen
+        state[_MRIS_INDEX] = index
+        return n
+
+
+
+
+_R2IS_COLOR = const(3)
+_R2IS_RLEN = const(4)
+_R2IS_INDEX = const(5)
+class Rle2ImageStream():
+    _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
+    _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
+    def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
+        self._color_format:int = screen_color_format
+        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE4_INITALIZER))
+        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
+        self._setup(raw_data, width, height)
+    def _setup(self, raw_data:memoryview, width:int, height:int):
+        if width <= 0 or height <= 0:
+            raise Exception("Image must have a positive size greater than 0")
+
+        self._raw_data:memoryview = raw_data
+        self.width:int = width
+        self.height:int = height
+        self._n_pixels:int = width*height
+
+        # Width
+        self._extra_state[_SX_WIDTH] = self.width
+        # Height
+        self._extra_state[_SX_HEIGHT] = self.height
+        #Remaining
+        self._extra_state[_SX_REMAINING] = self._n_pixels
+        fbyte:int = raw_data[0]
+        #cbyte
+        self._extra_state[_MRIS_COLOR] = (fbyte>>6)&3
+        # Remaining in byte
+        self._extra_state[_MRIS_RLEN] = fbyte&0x3F
+        #index
+        self._extra_state[_MRIS_INDEX] = 0
+
+    def get_remaining(self) -> int:
+        return self._extra_state[_SX_REMAINING]
+
+    def set_color(self, n:int, color:int):
+        if n < 0 or n > 3:
+            raise Exception("Invalid Palette Index")
+        self._palette[n] = _convert_color_to_format(self._color_format, color)
+
+    def reset(self):
+        # Set State required for reading the image
+
+        raw_data:memoryview = self._raw_data
+
+        #Remaining
+        self._extra_state[_SX_REMAINING] = self._n_pixels
+        fbyte:int = raw_data[0]
+        #color
+        self._extra_state[_MRIS_COLOR] = (fbyte>>6)&3
+        #index
+        self._extra_state[_MRIS_RLEN] = fbyte&0x3F
+        #index
+        self._extra_state[_MRIS_INDEX] = 0
+
+    @micropython.viper
+    def skip_pixels(self, n:int):
+        state:ptr32 = ptr32(self._extra_state)
+
+        remaining:int = state[_SX_REMAINING]
+        if n > remaining:
+            n = remaining
+        if n <= 0:
+            return
+
+
+        raw_data:ptr8 = ptr8(self._raw_data)
+
+        color:int = state[_MRIS_COLOR]
+        rlen:int = state[_MRIS_RLEN]
+        index:int = state[_MRIS_INDEX]
+        fbyte:int = 0
+
+        n2:int = n
+        while n2 > 0:
+            if rlen <= n2:
+                n2 -= rlen
+                index += 1
+                fbyte = raw_data[index]
+                color = (fbyte>>6)&3
+                rlen = fbyte&0x3F
+            else:
+                rlen -= n2
+        state[_SX_REMAINING] = remaining
+        state[_MRIS_COLOR] = color
+        state[_MRIS_RLEN] = rlen
+        state[_MRIS_INDEX] = index
+
+    @micropython.viper
+    def read_pixels(self, buf, n:int, offset:int) -> int:
+        state:ptr32 = ptr32(self._extra_state)
+
+        buf2:ptr8 = ptr8(buf)
+        remaining:int = state[_SX_REMAINING]
+        if n >= remaining:
+            n = remaining
+        if n <= 0:
+            return 0
+        # Offset is in pixels, but offset is required in bytes, so multiply by two
+        offset = (offset<<1)
+
+
+        palette:ptr16 = ptr16(self._palette)
+        raw_data:ptr8 = ptr8(self._raw_data)
+
+        color:int = state[_MRIS_COLOR]
+        rlen:int = state[_MRIS_RLEN]
+        index:int = state[_MRIS_INDEX]
+        fbyte:int = 0
+
+        while rlen <= 0:
+            index += 1
+            fbyte = raw_data[index]
+            color = (fbyte>>6)&3
+            rlen = fbyte&0x3F
+        color_0 = palette[color]&0xFF
+        color_1 = (palette[color]>>8)&0xFF
+
+        n2:int = n
+        while n2 > 0:
+            n2 -= 1
+            rlen -= 1
+            buf2[offset] = color_0
+            buf2[offset+1] = color_1
+
+            if rlen <= 0:
+                index += 1
+                fbyte = raw_data[index]
+                color = (fbyte>>6)&3
+                rlen = fbyte&0x3F
                 color_0 = palette[color]&0xFF
                 color_1 = (palette[color]>>8)&0xFF
 
@@ -743,7 +884,7 @@ class Component():
         self.draw = draw_function
         self._state:dict[str, object] = {}
         self.dirty:bool = True
-        self._screen:"Screen" = None
+        self._screen:"Screen" = None        # type: ignore[assignment]
         self._cid:int = 0
     def init_vars(self, state:dict[str, object]):
         self._state = state
