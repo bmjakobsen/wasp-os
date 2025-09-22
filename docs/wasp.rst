@@ -17,6 +17,9 @@ System
 .. automodule:: draw565
    :members:
 
+.. automodule:: watchgl
+   :members:
+
 .. automodule:: icons
    :members:
    :undoc-members:

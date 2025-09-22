@@ -16,6 +16,7 @@ R = const(0b11111_000000_00000)
 G = const(0b00000_111111_00000)
 B = const(0b00000_000000_11111)
 
+
 @micropython.viper
 def _bitblit(bitbuf, pixels, bgfg: int, count: int):
     mv = ptr16(bitbuf)
