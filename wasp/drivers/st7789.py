@@ -195,6 +195,7 @@ class ST7789(object):
 
     @micropython.viper
     def wgl_fill(self, color:int, x:int, y:int, width:int, height:int):
+        print("FILL "+hex(color)+": X:"+str(x)+", Y:"+str(y)+", W:"+str(width)+", H:"+str(height))
         # Populate the line buffer
         lbuffer = self.linebuffer
         buf:ptr8 = ptr8(lbuffer)
@@ -233,7 +234,9 @@ class ST7789(object):
         buf:ptr8 = ptr8(lbuffer)
         scwidth:int = int(self.width)
 
+        print("BLIT:  X:"+str(x)+", Y:"+str(y)+", W:"+str(image.width)+", H:"+str(image.height))
         self.set_window(x, y, image.width, image.height)
+
 
         read_pixels = image.read_pixels
         n:int = 0

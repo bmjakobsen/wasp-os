@@ -36,8 +36,6 @@ class Draw565(object):
         """
 
 
-        print(wg)
-
 
         self.wg = wg
 
@@ -280,7 +278,7 @@ class Draw565(object):
 
         if color is None:
             color = self._fg
-        self.wg.draw_line_polar(color, x, y, theta, r0, r1, width)
+        self.wg.draw_line_polar(color, width, x, y, theta, r0, r1)
 
     def lighten(self, color, step=1):
         """Get a lighter shade from the same palette.

@@ -1314,6 +1314,7 @@ class WatchGraphics():
     # into bigger operations to draw orthogonal lines.
     @micropython.viper
     def draw_line(self, color:int, width:int, x0:int, y0:int, x1:int, y1:int):
+        print(width, x0, y0, x1, y1)
         # Line Thickness offset
         ltoff:int = (width-1)//2
 
@@ -1384,6 +1385,7 @@ class WatchGraphics():
 
         while True:
             # Cropping the current point so it doesnt overdraw
+            print(fill_h)
             rx0:int = x0
             ry0:int = y0
 
@@ -1458,7 +1460,7 @@ class WatchGraphics():
 
     # Draw a line using polar coordinates
     @micropython.native
-    def draw_line_polar(self, color:int, x:int, y:int, theta:int, r0:int, r1:int, width:int):
+    def draw_line_polar(self, color:int, width:int, x:int, y:int, theta:int, r0:int, r1:int):
         theta2:float = theta*_C_TO_RADIANS
         xdelta:float = math.sin(theta2)
         ydelta:float = math.cos(theta2)
@@ -1466,7 +1468,7 @@ class WatchGraphics():
         x1:int = x + int(xdelta * r1)
         y0:int = x - int(ydelta * r0)
         y1:int = x - int(ydelta * r1)
-        self.draw_line(x0, y0, x1, y1, width, color)
+        self.draw_line(color, width, x0, y0, x1, y1)
 
 
     # Get bounding box of a string drawn on the screen
