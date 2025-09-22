@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 from array import array
 import math
@@ -636,10 +635,13 @@ class Screen():
 
 
     _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(_16BIT_UNSIGNED_INT, bytearray(_MAX_TILES_HEIGHT*2)))
-    def __init__(self, bgcolor:int, display_spec:DisplaySpec, components:list['Component']):
+    def __init__(self, bgcolor:int, wg:WatchGraphics, components:list['Component']):
         if len(components) > 127:
             raise Exception("Too many components")
         self.bgcolor:int = bgcolor
+
+        self.wg = wg
+        display_spec = wg.display.spec
 
         self.display_spec:DisplaySpec = display_spec
 
@@ -729,7 +731,8 @@ class Screen():
 
 
     @micropython.viper
-    def draw_lazy(self, wg):
+    def draw_lazy(self):
+        wg = self.wg
         update_array:ptr16 = ptr16(self.update_array)
         set_com_context = wg._set_component_context
         builtin_false = builtins.bool(False)
@@ -775,7 +778,8 @@ class Screen():
 
 
     @micropython.viper
-    def draw_full(self, wg):
+    def draw_full(self):
+        wg = self.wg
         update_array:ptr16 = ptr16(self.update_array)
         set_com_context = wg._set_component_context
 
@@ -791,7 +795,8 @@ class Screen():
 
     """
     @micropython.viper
-    def draw_scroll(self, wg, scroll_direction:int):
+    def draw_scroll(self, scroll_direction:int):
+        wg = self.wg
         if scroll_direction != DIRECTION_UP and scroll_direction != DIRECTION_DOWN:
             raise Exception("Invalid Direction given")
         window_info:ptr32 = ptr32(self._screen_info)
@@ -800,30 +805,8 @@ class Screen():
     """
 
 
-
-
-
-
-class RawScreen():
-    _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
-
-    def __init__(self, bgcolor:int, wg:WatchGraphics, display_spec:DisplaySpec):
-        self.bgcolor:int = bgcolor
-
-        self.display_spec:DisplaySpec = display_spec
-
-        self.wg = wg
-
-
-        tiled_height:int = display_spec.width//TILE_SIZE
-        tiled_width:int = display_spec.height//TILE_SIZE
-        self.tiled_height = tiled_height
-
-        self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(2*4)))
-        self._screen_info[_SC_WIDTH] = display_spec.width
-        self._screen_info[_SC_HEIGHT] = display_spec.height
-
-
+    def switch_screen(self, ns:Screen, direction:int):
+        self.wg._set_screen(self, ns)
 
 
 
@@ -885,6 +868,8 @@ class WatchGraphics():
         self._text_bgcolor:int = _DEFAULT_BGCOLOR
         self._text_bgcolor_modified:bool = True
 
+        self._screen = None
+
         #self.scroll_direction:int = DIRECTION_UP
 
         self.width:int = self.display.spec.width
@@ -927,6 +912,20 @@ class WatchGraphics():
         self._window_info[_WGWI_XPOS] = x
         self._window_info[_WGWI_YPOS] = y
         self._window_info[_WGWI_YSHIFT] = shift_y
+
+
+    def _set_screen(self, old:Screen, s:Screen):
+        cs = self._screen
+        if old is not None and cs is not old:
+            raise Exception("Cant switch screen if current screen is not active")
+        if cs == s:
+            return
+        if s is None:
+            self.screen = None
+            self._set_screen_context(0)
+        else:
+            self._screen = s
+            self._set_screen_context(s.bgcolor)
 
 
 
