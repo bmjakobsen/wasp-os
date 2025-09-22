@@ -3,7 +3,7 @@ from array import array
 import math
 import fonts.sans24
 import builtins
-from time import ticks_ms, ticks_add, ticks_diff
+#from time import ticks_ms, ticks_add, ticks_diff
 
 
 
@@ -40,9 +40,9 @@ except (ImportError, AttributeError):
 
 TILE_SIZE = const(16)                       # Size of tiles on the screen, all components must be aligned to tiles
 
-#_TILES_PER_VSCROLL_STRIPE = const(2)
-#_VSCROLL_STRIPE_SIZE = const(TILE_SIZE*_TILES_PER_VSCROLL_STRIPE)
-#_VSCROLL_STRIPE_SIZE2 = const(_VSCROLL_STRIPE_SIZE*2)
+_TILES_PER_VSCROLL_STRIPE = const(2)
+_VSCROLL_STRIPE_SIZE = const(TILE_SIZE*_TILES_PER_VSCROLL_STRIPE)
+_VSCROLL_STRIPE_SIZE2 = const(_VSCROLL_STRIPE_SIZE*2)
 
 
 _MAX_TILES_WIDTH = const(16)
@@ -180,8 +180,7 @@ class DisplaySpec():
             raise Exception("vscroll_stripe_size must not be negative")
         if vscroll_stripe_size < _VSCROLL_STRIPE_SIZE2 or True:         # Currently scrolling is deactivated
             if DIRECTION_UP in scroll_directions or DIRECTION_DOWN in scroll_directions:
-                raise Exception("Vertical Scrolling area is too small to implement scrolling, must specify allowed 
-scrolling directions to not include UP or DOWN")
+                raise Exception("Vertical Scrolling area is too small to implement scrolling, must specify allowed scrolling directions to not include UP or DOWN")
 
         scroll_directions = frozenset(scroll_directions)
         for scd in scroll_directions:
@@ -602,7 +601,7 @@ class Component():
         self.draw = draw_function
         self._state:dict[str, object] = {}
         self.dirty:bool = True
-        self._screen:"Screen" = _DUMMY_SCREEN
+        self._screen:"Screen" = None
         self._cid:int = 0
     def init_vars(self, state:dict[str, object]):
         self._state = state
@@ -635,7 +634,7 @@ class Screen():
 
 
     _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(_16BIT_UNSIGNED_INT, bytearray(_MAX_TILES_HEIGHT*2)))
-    def __init__(self, bgcolor:int, wg:WatchGraphics, components:list['Component']):
+    def __init__(self, bgcolor:int, wg:'WatchGraphics', components:list['Component']):
         if len(components) > 127:
             raise Exception("Too many components")
         self.bgcolor:int = bgcolor
@@ -805,7 +804,7 @@ class Screen():
     """
 
 
-    def switch_screen(self, ns:Screen, direction:int):
+    def switch_screen(self, ns:'Screen', direction:int):
         self.wg._set_screen(self, ns)
 
 
@@ -1240,7 +1239,6 @@ class WatchGraphics():
 
 
 
-_DUMMY_SCREEN:Screen = Screen(0, DisplaySpec(0, 0, COLORFORMAT_RGB565, scroll_directions=frozenset([])), [])
 class DummyDisplay(DisplayProtocol):
     def __init__(self, width:int, height:int, color_format:int=COLORFORMAT_RGB565):
         self.spec = DisplaySpec(width, height, color_format, scroll_directions=frozenset([]))
