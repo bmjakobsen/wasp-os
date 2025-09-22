@@ -41,9 +41,9 @@ except (ImportError, AttributeError):
 
 TILE_SIZE = const(16)                       # Size of tiles on the screen, all components must be aligned to tiles
 
-_TILES_PER_VSCROLL_STRIPE = const(2)
-_VSCROLL_STRIPE_SIZE = const(TILE_SIZE*_TILES_PER_VSCROLL_STRIPE)
-_VSCROLL_STRIPE_SIZE2 = const(_VSCROLL_STRIPE_SIZE*2)
+#_TILES_PER_VSCROLL_STRIPE = const(2)
+#_VSCROLL_STRIPE_SIZE = const(TILE_SIZE*_TILES_PER_VSCROLL_STRIPE)
+#_VSCROLL_STRIPE_SIZE2 = const(_VSCROLL_STRIPE_SIZE*2)
 
 
 _MAX_TILES_WIDTH = const(16)
@@ -179,9 +179,10 @@ class DisplaySpec():
 
         if vscroll_stripe_size < 0:
             raise Exception("vscroll_stripe_size must not be negative")
-        if vscroll_stripe_size < _VSCROLL_STRIPE_SIZE2:
+        if vscroll_stripe_size < _VSCROLL_STRIPE_SIZE2 or True:         # Currently scrolling is deactivated
             if DIRECTION_UP in scroll_directions or DIRECTION_DOWN in scroll_directions:
-                raise Exception("Vertical Scrolling area is too small to implement scrolling, must specify allowed scrolling directions to not include UP or DOWN")
+                raise Exception("Vertical Scrolling area is too small to implement scrolling, must specify allowed 
+scrolling directions to not include UP or DOWN")
 
         scroll_directions = frozenset(scroll_directions)
         for scd in scroll_directions:
@@ -654,14 +655,14 @@ class Screen():
 
         assert(tiled_height <= _MAX_TILES_HEIGHT and tiled_width <= _MAX_TILES_WIDTH)
 
-        com_map_y:list[list[int]] = []
+        #com_map_y:list[list[int]] = []
 
         # The bitfield is used to detect overlaps in components
         # Each array index is a row and each bit says wether that column is occupied by a component
         bitfield:memoryview = self._CREATION_OVERLAP_BITMASK
         for i in range(tiled_height):
             bitfield[i] = 0
-            com_map_y.append([])
+            #com_map_y.append([])
 
 
         ncomponents:list['Component'] = []
@@ -680,7 +681,7 @@ class Screen():
 
             # Check and set flags in bitfield wether a given position is already occupied by another component
             for cyp in range(cy0, cy1):
-                com_map_y[cyp].append(cid)
+                #com_map_y[cyp].append(cid)
                 value = bitfield[cyp]
                 for i in range(cx0, cx1):
                     if (value>>i)&1:
@@ -695,10 +696,10 @@ class Screen():
             cid = cid+1
 
 
+        """
         map_empty_row:memoryview = memoryview(array(self._8BIT_UNSIGNED_INT, [0]))
         last_used_memoryview:memoryview = map_empty_row
         last_used_list:list[int] = [0]
-
         com_map_y2:list[memoryview] = []
         for r in com_map_y:
             r.append(0)
@@ -711,6 +712,7 @@ class Screen():
                 last_used_memoryview = memoryview(array(self._8BIT_UNSIGNED_INT, r))
                 com_map_y2.append(last_used_memoryview)
         self.com_map_y:list[memoryview] = com_map_y2
+        """
 
 
         self.components:list['Component'] = ncomponents
@@ -787,6 +789,7 @@ class Screen():
             com_draw(com, wg)
             com.dirty = builtin_false
 
+    """
     @micropython.viper
     def draw_scroll(self, wg, scroll_direction:int):
         if scroll_direction != DIRECTION_UP and scroll_direction != DIRECTION_DOWN:
@@ -794,6 +797,32 @@ class Screen():
         window_info:ptr32 = ptr32(self._screen_info)
         height:int = window_info[_SC_HEIGHT]
         tiled_height:int = window_info[_SC_THEIGHT]
+    """
+
+
+
+
+
+
+class RawScreen():
+    _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
+
+    def __init__(self, bgcolor:int, wg:WatchGraphics, display_spec:DisplaySpec):
+        self.bgcolor:int = bgcolor
+
+        self.display_spec:DisplaySpec = display_spec
+
+        self.wg = wg
+
+
+        tiled_height:int = display_spec.width//TILE_SIZE
+        tiled_width:int = display_spec.height//TILE_SIZE
+        self.tiled_height = tiled_height
+
+        self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(2*4)))
+        self._screen_info[_SC_WIDTH] = display_spec.width
+        self._screen_info[_SC_HEIGHT] = display_spec.height
+
 
 
 
@@ -856,7 +885,7 @@ class WatchGraphics():
         self._text_bgcolor:int = _DEFAULT_BGCOLOR
         self._text_bgcolor_modified:bool = True
 
-        self.scroll_direction:int = DIRECTION_UP
+        #self.scroll_direction:int = DIRECTION_UP
 
         self.width:int = self.display.spec.width
         self.height:int = self.display.spec.height
