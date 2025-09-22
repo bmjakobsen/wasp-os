@@ -157,8 +157,7 @@ class ImageStream(Protocol):
 
 
 class DisplaySpec():
-    _SUPPORTED_SCROLLS = set([DIRECTION_UP, DIRECTION_DOWN])
-    def __init__(self, width:int, height:int, color_format:int, scroll_directions:frozenset[int]=frozenset([DIRECTION_UP, DIRECTION_DOWN]), vscroll_stripe_size:int=_VSCROLL_STRIPE_SIZE2, hscroll_stripe_size:int=0):
+    def __init__(self, width:int, height:int, color_format:int, scroll_directions:frozenset[int]=frozenset([DIRECTION_UP, DIRECTION_DOWN]), vscroll_stripe_size:int=_VSCROLL_STRIPE_SIZE2):
         self.width:int = width
         self.height:int = height
         self.color_format:int = color_format
@@ -192,9 +191,6 @@ class DisplaySpec():
             if scd == DIRECTION_DOWN:
                 continue
             raise Exception("Unsupported Scroll Direction used")
-
-        if hscroll_stripe_size != 0:
-            raise Exception("Horizontal Scrolling is not supported, so hscroll_stripe_size must be zero")
 
         self.scroll_directions:frozenset[int] = scroll_directions
 

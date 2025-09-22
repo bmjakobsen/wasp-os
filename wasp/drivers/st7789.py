@@ -42,10 +42,11 @@ class ST7789(object):
         :param int width: Display width, in pixels
         :param int height: Display height in pixels
         """
+        self.spec = None
         self.width = width
         self.height = height
         self.linebuffer = memoryview(bytearray(2 * width))
-        self.window = bytearray(4)
+        self.window = memoryview(bytearray(4))
         self.init_display()
 
     def init_display(self):
@@ -106,8 +107,8 @@ class ST7789(object):
         else:
             self.write_cmd(_DISPON)
 
-    @micropython.native
-    def set_window(self, x, y, width, height):
+    @micropython.viper
+    def set_window(self, x:int, y:int, width:int, height:int):
         """Set the clipping rectangle.
 
         All writes to the display will be wrapped at the edges of the rectangle.
@@ -120,7 +121,7 @@ class ST7789(object):
                    the bottom-most pixel of the display)
         """
         write_cmd = self.write_cmd
-        window = self.window
+        window:ptr8 = ptr8(self.window)
         write_data = self.write_data
 
         xp = x + width - 1
@@ -182,9 +183,75 @@ class ST7789(object):
             buf[xi] = bg >> 8
             buf[xi+1] = bg & 0xff
 
+        write_data = self.write_data
         # Do the fill
         for yi in range(h):
-            self.write_data(buf)
+            write_data(buf)
+
+
+
+    def _write_data_trunc(self, buf:memoryview, len:int):
+        self.write_data(buf[:len])
+
+    @micropython.viper
+    def wgl_fill(self, color:int, x:int, y:int, width:int, height:int):
+        # Populate the line buffer
+        lbuffer = self.linebuffer
+        buf:ptr8 = ptr8(lbuffer)
+        scwidth:int = int(self.width)
+        pixels:int = width*height
+
+        full_rows:int = 0
+        last_row:int = 0
+        if scwidth > pixels:
+            scwidth = pixels
+            full_rows = 1
+            last_row = 0
+        else:
+            full_rows:int = pixels//scwidth
+            last_row:int = pixels%scwidth
+
+        color &= 0xFFFF
+        for xi in range(0, 2*scwidth, 2):
+            buf[xi] = color >> 8
+            buf[xi+1] = color & 0xff
+
+        self.set_window(x, y, width, height)
+
+        write_data = self.write_data
+        # Do the fill
+        for _ in range(full_rows):
+            write_data(lbuffer)
+        if last_row > 0:
+            last_row <<= 1      # Last row x 2 to get number of bytes instead of number of pixels
+            self._write_data_trunc(lbuffer, last_row)
+
+    @micropython.viper
+    def wgl_blit(self, image, x:int, y:int):
+        # Populate the line buffer
+        lbuffer = self.linebuffer
+        buf:ptr8 = ptr8(lbuffer)
+        scwidth:int = int(self.width)
+
+        self.set_window(x, y, width, height)
+
+        read_pixels = image.read_pixels
+        n:int = 0
+        write_data = self.write_data
+        while True:
+            # Read up to scwidth pixels into the buffer, method returns the number of pixels written
+            n = int(read_pixels(lbuffer, scwidth, 0))
+            # Number lower than the requested number means end of stream
+            if n < scwidth:
+                n <<= 1         # Number of gotten pixels x2 to get number of gotten bytes
+                self._write_data_trunc(lbuffer, n)
+                break
+            else:
+                write_data(lbuffer)
+
+
+
+
 
 class ST7789_SPI(ST7789):
     """
@@ -213,7 +280,7 @@ class ST7789_SPI(ST7789):
         self.dc = dc.value
         self.res = res
         self.rate = rate
-        self.cmd = bytearray(1)
+        self.cmd = memoryview(bytearray(1))
 
         #spi.init(baudrate=self.rate, polarity=1, phase=1)
         cs.init(cs.OUT, value=1)
@@ -237,8 +304,8 @@ class ST7789_SPI(ST7789):
             self.write_cmd(_SWRESET)
         sleep_ms(125)
 
-    @micropython.native
-    def write_cmd(self, cmd):
+    @micropython.viper
+    def write_cmd(self, cmd:int):
         """Send a command opcode to the display.
 
         :param sequence cmd: Command, will be automatically converted so it can
@@ -246,7 +313,7 @@ class ST7789_SPI(ST7789):
         """
         dc = self.dc
         cs = self.cs
-        c = self.cmd
+        c:ptr8 = ptr8(self.cmd)
 
         dc(0)
         cs(0)
