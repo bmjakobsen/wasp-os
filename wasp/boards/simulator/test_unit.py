@@ -1,6 +1,9 @@
 import draw565
 import fonts
 import pytest
+from watchgl import WatchGraphics, DummyDisplay
+
+
 
 @pytest.fixture
 def draw():
@@ -9,7 +12,8 @@ def draw():
     Currently most of the draw565 functions will not work since we haven't
     mocked up the display. This limits the testing that we can perform.
     """
-    d = draw565.Draw565(None)
+    wgl = WatchGraphics(DummyDisplay(240, 240))
+    d = draw565.Draw565(wgl)
 
     return d
 

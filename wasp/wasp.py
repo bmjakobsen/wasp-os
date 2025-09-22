@@ -147,7 +147,7 @@ class Manager():
         self._scheduled = False
         self._scheduling = False
 
-    def create_screen(self, bgcolor:int, components:List['Component']) -> Screen:
+    def create_screen(self, bgcolor:int, components:list['Component']) -> Screen:
         return Screen(bgcolor, watch.wgl, components)
 
     def secondary_init(self):
@@ -276,7 +276,7 @@ class Manager():
         self.tick_expiry = None
 
         self.app = app
-        if sc is None:
+        if screen is None:
             watch.wgl._set_screen(None, None)
             watch.display.mute(True)
             watch.drawable.reset()

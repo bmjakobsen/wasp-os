@@ -233,7 +233,7 @@ class ST7789(object):
         buf:ptr8 = ptr8(lbuffer)
         scwidth:int = int(self.width)
 
-        self.set_window(x, y, width, height)
+        self.set_window(x, y, image.width, image.height)
 
         read_pixels = image.read_pixels
         n:int = 0
