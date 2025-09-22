@@ -40,19 +40,18 @@ except (ImportError, AttributeError):
 
 
 TILE_SIZE = const(16)                       # Size of tiles on the screen, all components must be aligned to tiles
-_TILE_SIZE_DIV = const(4)                   # Number of bits to shift right by to divide by the Tile Size
-_TILE_SIZE_MOD_MASK = const(0xfffff0)       # Bitmask to get the modulo, x%TILE_SIZE => x&TILE_SIZE_MOD_MASK
 
 _TILES_PER_VSCROLL_STRIPE = const(2)
 _VSCROLL_STRIPE_SIZE = const(TILE_SIZE*_TILES_PER_VSCROLL_STRIPE)
 _VSCROLL_STRIPE_SIZE2 = const(_VSCROLL_STRIPE_SIZE*2)
 
 
-_MAX_TILES_PER_DIM = const(16)
+_MAX_TILES_WIDTH = const(16)
+_MAX_TILES_HEIGHT = const(20)
 
 # The Max size of the screen is dependent on the tile size, currently it is assumed that all screens have at most 16 Tiles in the width
-_MAX_SCREEN_WIDTH = const(TILE_SIZE*_MAX_TILES_PER_DIM)
-_MAX_SCREEN_HEIGHT = const(TILE_SIZE*_MAX_TILES_PER_DIM)
+_MAX_SCREEN_WIDTH = const(TILE_SIZE*_MAX_TILES_WIDTH)
+_MAX_SCREEN_HEIGHT = const(TILE_SIZE*_MAX_TILES_HEIGHT)
 
 
 
@@ -174,8 +173,8 @@ class DisplaySpec():
         if height > _MAX_SCREEN_WIDTH:
             raise Exception("The screen is too wide to handle, currently not more than "+str(_MAX_SCREEN_HEIGHT)+" is allowed")
 
-        self.tiled_height:int = height>>_TILE_SIZE_DIV
-        self.tiled_width:int = width>>_TILE_SIZE_DIV
+        self.tiled_height:int = height//TILE_SIZE
+        self.tiled_width:int = width//TILE_SIZE
 
 
         if vscroll_stripe_size < 0:
@@ -534,7 +533,7 @@ class MonoImageStream():
             n = remaining
         if n <= 0:
             return 0
-        # Offset is in pixels, but offset is required in bytes
+        # Offset is in pixels, but offset is required in bytes, so multiply by two
         offset = (offset<<1)
 
 
@@ -588,10 +587,10 @@ def _draw_function_sample(com:'Component', wg:'WatchGraphics'):
 
 class Component():
     def __init__(self, x:int, y:int, width:int, height:int, draw_function):
-        if (x < 0 or x&_TILE_SIZE_MOD_MASK != 0 or
-          y < 0 or y&_TILE_SIZE_MOD_MASK != 0 or
-          width <= 0 or width&_TILE_SIZE_MOD_MASK != 0 or
-          height <= 0 or height&_TILE_SIZE_MOD_MASK != 0):
+        if (x < 0 or x%TILE_SIZE != 0 or
+          y < 0 or y%TILE_SIZE != 0 or
+          width <= 0 or width%TILE_SIZE != 0 or
+          height <= 0 or height%TILE_SIZE != 0):
             raise Exception("Invalid Sizing or Positioning of Component, Components Size and Position must be aligned to "+str(TILE_SIZE)+", Position must not be negative and Size must be greater than 0")
 
         self.x:int = x
@@ -635,7 +634,7 @@ class Screen():
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
 
 
-    _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(_16BIT_UNSIGNED_INT, bytearray(_MAX_TILES_PER_DIM*4)))
+    _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(_16BIT_UNSIGNED_INT, bytearray(_MAX_TILES_HEIGHT*2)))
     def __init__(self, bgcolor:int, display_spec:DisplaySpec, components:list['Component']):
         if len(components) > 127:
             raise Exception("Too many components")
@@ -644,8 +643,8 @@ class Screen():
         self.display_spec:DisplaySpec = display_spec
 
 
-        tiled_height:int = display_spec.width>>_TILE_SIZE_DIV
-        tiled_width:int = display_spec.height>>_TILE_SIZE_DIV
+        tiled_height:int = display_spec.width//TILE_SIZE
+        tiled_width:int = display_spec.height//TILE_SIZE
         self.tiled_height = tiled_height
 
         self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(3*4)))
@@ -653,7 +652,7 @@ class Screen():
         self._screen_info[_SC_HEIGHT] = display_spec.height
         self._screen_info[_SC_THEIGHT] = tiled_height
 
-        assert(tiled_height <= _MAX_TILES_PER_DIM and tiled_width <= _MAX_TILES_PER_DIM)
+        assert(tiled_height <= _MAX_TILES_HEIGHT and tiled_width <= _MAX_TILES_WIDTH)
 
         com_map_y:list[list[int]] = []
 
@@ -669,12 +668,12 @@ class Screen():
         cid:int = 1
         for c in components:
             # Get y range occupied by tile
-            cy0:int = (c.y)>>_TILE_SIZE_DIV
-            cy1:int = cy0+(c.height>>_TILE_SIZE_DIV)
+            cy0:int = (c.y)//TILE_SIZE
+            cy1:int = cy0+(c.height//TILE_SIZE)
 
             # Get x range occupied by tile
-            cx0:int = (c.x)>>_TILE_SIZE_DIV
-            cx1:int = cx0+(c.width>>_TILE_SIZE_DIV)
+            cx0:int = (c.x)//TILE_SIZE
+            cx1:int = cx0+(c.width//TILE_SIZE)
 
             if cy1 > tiled_height or cx1 > tiled_width:
                 raise Exception("Component goes out of screen bounds")
@@ -1200,7 +1199,7 @@ class WatchGraphics():
         (rw, rh) = self.string_bounding_box(s)
         rwidth:int = int(rw)
         if align == ALIGNMENT_CENTER:
-            offset:int = (rwidth>>1)
+            offset:int = rwidth//2
             self.draw_string(color, s, x-offset, y)
         elif align == ALIGNMENT_LEFT:
             self.draw_string(color, s, x, y)
