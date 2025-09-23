@@ -717,7 +717,7 @@ class Rle2ImageStream():
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
     def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
         self._color_format:int = screen_color_format
-        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE4_INITALIZER))
+        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE4_INITALIZER+_PALETTE4_INITALIZER))
         self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
         self._setup(raw_data, width, height)
     def _setup(self, raw_data:memoryview, width:int, height:int):
@@ -741,11 +741,18 @@ class Rle2ImageStream():
     def set_color(self, n:int, color:int):
         if n < 0 or n > 3:
             raise Exception("Invalid Palette Index")
-        self._palette[n] = _convert_color_to_format(self._color_format, color)
+        c = _convert_color_to_format(self._color_format, color)
+        self._palette[n] = c
+        self._palette[n+4] = c
 
     def reset(self):
         # Set State required for reading the image
 
+        palette:memoryview = self._palette
+        palette[0] = palette[0+4]
+        palette[1] = palette[1+4]
+        palette[2] = palette[2+4]
+        palette[3] = palette[3+4]
         raw_data:memoryview = self._raw_data
 
         #Remaining
