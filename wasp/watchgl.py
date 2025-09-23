@@ -500,9 +500,8 @@ class MonoImageStream():
         rem_in_b:int = state[_MIS_REM_IN_B]
         rem_in_l:int = state[_MIS_REM_IN_L]
 
-        n2:int = n
-        while n2 > 0:
-            n2 -= 1
+        while n > 0:
+            n -= 1
 
             cbyte >>= 1
             rem_in_b -= 1
@@ -573,10 +572,11 @@ class MonoImageStream():
         state[_SX_REMAINING] = remaining
         state[_MIS_CBYTE] = cbyte
         state[_MIS_INDEX] = index
-        print(rem_in_b)
         state[_MIS_REM_IN_B] = rem_in_b
         state[_MIS_REM_IN_L] = rem_in_l
         return n
+    def info(self) -> str:
+        return "MonoImageStream("+str(self.width)+", "+str(self.height)+")"
 
 
 
@@ -652,15 +652,17 @@ class MonoRleImageStream():
         rlen:int = state[_MRIS_RLEN]
         index:int = state[_MRIS_INDEX]
 
-        n2:int = n
-        while n2 > 0:
-            if rlen <= n2:
-                n2 -= rlen
+        while n > 0:
+            if rlen <= n:
+                n -= rlen
+                remaining -= rlen
                 color = (color+1)&1
                 index += 1
                 rlen = raw_data[index]
             else:
-                rlen -= n2
+                rlen -= n
+                remaining -= n
+                break
         state[_SX_REMAINING] = remaining
         state[_MRIS_COLOR] = color
         state[_MRIS_RLEN] = rlen
@@ -672,9 +674,7 @@ class MonoRleImageStream():
 
         buf2:ptr8 = ptr8(buf)
         remaining:int = state[_SX_REMAINING]
-        empty:bool = False
         if n >= remaining:
-            empty = True
             n = remaining
         if n <= 0:
             return 0
@@ -700,11 +700,17 @@ class MonoRleImageStream():
         n2:int = n
         while n2 > 0:
             n2 -= 1
+
             rlen -= 1
+            remaining -= 1
             buf2[offset] = color_0
             buf2[offset+1] = color_1
+            offset += 2
 
-            if rlen <= 0 and (n2 > 0 or not empty):
+
+            if remaining == 0:
+                break
+            while rlen <= 0:
                 index += 1
                 rlen = raw_data[index]
                 color = (color+1)&1
@@ -716,6 +722,8 @@ class MonoRleImageStream():
         state[_MRIS_RLEN] = rlen
         state[_MRIS_INDEX] = index
         return n
+    def info(self) -> str:
+        return "MonoRleImageStream("+str(self.width)+", "+str(self.height)+")"
 
 
 
@@ -748,11 +756,12 @@ class Rle2ImageStream():
         self._extra_state[_SX_REMAINING] = self._n_pixels
         fbyte:int = raw_data[0]
         #cbyte
-        self._extra_state[_MRIS_COLOR] = (fbyte>>6)&3
+        self._extra_state[_R2IS_COLOR] = (fbyte>>6)&3
         # Remaining in byte
-        self._extra_state[_MRIS_RLEN] = fbyte&0x3F
+        self._extra_state[_R2IS_RLEN] = fbyte&0x3F
         #index
-        self._extra_state[_MRIS_INDEX] = 0
+        self._extra_state[_R2IS_INDEX] = 0
+        print(0, fbyte&0x3F)
 
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
@@ -771,11 +780,12 @@ class Rle2ImageStream():
         self._extra_state[_SX_REMAINING] = self._n_pixels
         fbyte:int = raw_data[0]
         #color
-        self._extra_state[_MRIS_COLOR] = (fbyte>>6)&3
+        self._extra_state[_R2IS_COLOR] = (fbyte>>6)&3
         #index
-        self._extra_state[_MRIS_RLEN] = fbyte&0x3F
+        self._extra_state[_R2IS_RLEN] = fbyte&0x3F
         #index
-        self._extra_state[_MRIS_INDEX] = 0
+        self._extra_state[_R2IS_INDEX] = 0
+        print(0, fbyte&0x3F)
 
     @micropython.viper
     def skip_pixels(self, n:int):
@@ -790,25 +800,27 @@ class Rle2ImageStream():
 
         raw_data:ptr8 = ptr8(self._raw_data)
 
-        color:int = state[_MRIS_COLOR]
-        rlen:int = state[_MRIS_RLEN]
-        index:int = state[_MRIS_INDEX]
+        color:int = state[_R2IS_COLOR]
+        rlen:int = state[_R2IS_RLEN]
+        index:int = state[_R2IS_INDEX]
         fbyte:int = 0
 
-        n2:int = n
-        while n2 > 0:
-            if rlen <= n2:
-                n2 -= rlen
+        while n > 0:
+            if rlen <= n:
+                n -= rlen
+                remaining -= rlen
                 index += 1
                 fbyte = raw_data[index]
                 color = (fbyte>>6)&3
                 rlen = fbyte&0x3F
             else:
-                rlen -= n2
+                rlen -= n
+                remaining -= n
+                break
         state[_SX_REMAINING] = remaining
-        state[_MRIS_COLOR] = color
-        state[_MRIS_RLEN] = rlen
-        state[_MRIS_INDEX] = index
+        state[_R2IS_COLOR] = color
+        state[_R2IS_RLEN] = rlen
+        state[_R2IS_INDEX] = index
 
     @micropython.viper
     def read_pixels(self, buf, n:int, offset:int) -> int:
@@ -816,10 +828,8 @@ class Rle2ImageStream():
 
         buf2:ptr8 = ptr8(buf)
         remaining:int = state[_SX_REMAINING]
-        empty:bool = False
         if n >= remaining:
             n = remaining
-            empty = True
         if n <= 0:
             return 0
         # Offset is in pixels, but offset is required in bytes, so multiply by two
@@ -829,9 +839,9 @@ class Rle2ImageStream():
         palette:ptr16 = ptr16(self._palette)
         raw_data:ptr8 = ptr8(self._raw_data)
 
-        color:int = state[_MRIS_COLOR]
-        rlen:int = state[_MRIS_RLEN]
-        index:int = state[_MRIS_INDEX]
+        color:int = state[_R2IS_COLOR]
+        rlen:int = state[_R2IS_RLEN]
+        index:int = state[_R2IS_INDEX]
         fbyte:int = 0
 
         while rlen <= 0:
@@ -839,6 +849,7 @@ class Rle2ImageStream():
             fbyte = raw_data[index]
             color = (fbyte>>6)&3
             rlen = fbyte&0x3F
+            print(index, rlen, offset)
         color_0 = palette[color]&0xFF
         color_1 = (palette[color]>>8)&0xFF
 
@@ -846,22 +857,30 @@ class Rle2ImageStream():
         while n2 > 0:
             n2 -= 1
             rlen -= 1
+            remaining -= 1
             buf2[offset] = color_0
             buf2[offset+1] = color_1
+            offset += 2
 
-            if rlen <= 0 and (n2 > 0 or not empty):
+            if remaining == 0:
+                break
+
+            while rlen <= 0:
                 index += 1
                 fbyte = raw_data[index]
                 color = (fbyte>>6)&3
                 rlen = fbyte&0x3F
+                print(index, rlen, offset)
                 color_0 = palette[color]&0xFF
                 color_1 = (palette[color]>>8)&0xFF
 
         state[_SX_REMAINING] = remaining
-        state[_MRIS_COLOR] = color
-        state[_MRIS_RLEN] = rlen
-        state[_MRIS_INDEX] = index
+        state[_R2IS_COLOR] = color
+        state[_R2IS_RLEN] = rlen
+        state[_R2IS_INDEX] = index
         return n
+    def info(self) -> str:
+        return "Rle2ImageStream("+str(self.width)+", "+str(self.height)+")"
 
 
 
@@ -1314,7 +1333,6 @@ class WatchGraphics():
     # into bigger operations to draw orthogonal lines.
     @micropython.viper
     def draw_line(self, color:int, width:int, x0:int, y0:int, x1:int, y1:int):
-        print(width, x0, y0, x1, y1)
         # Line Thickness offset
         ltoff:int = (width-1)//2
 
@@ -1385,7 +1403,6 @@ class WatchGraphics():
 
         while True:
             # Cropping the current point so it doesnt overdraw
-            print(fill_h)
             rx0:int = x0
             ry0:int = y0
 

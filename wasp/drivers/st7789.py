@@ -195,7 +195,7 @@ class ST7789(object):
 
     @micropython.viper
     def wgl_fill(self, color:int, x:int, y:int, width:int, height:int):
-        print("FILL "+hex(color)+": X:"+str(x)+", Y:"+str(y)+", W:"+str(width)+", H:"+str(height))
+        #print("FILL "+hex(color)+": X:"+str(x)+", Y:"+str(y)+", W:"+str(width)+", H:"+str(height))
         # Populate the line buffer
         lbuffer = self.linebuffer
         buf:ptr8 = ptr8(lbuffer)
@@ -231,10 +231,10 @@ class ST7789(object):
     def wgl_blit(self, image, x:int, y:int):
         # Populate the line buffer
         lbuffer = self.linebuffer
-        buf:ptr8 = ptr8(lbuffer)
         scwidth:int = int(self.width)
 
         print("BLIT:  X:"+str(x)+", Y:"+str(y)+", W:"+str(image.width)+", H:"+str(image.height))
+        print(image.info())
         self.set_window(x, y, image.width, image.height)
 
 
@@ -244,10 +244,12 @@ class ST7789(object):
         while True:
             # Read up to scwidth pixels into the buffer, method returns the number of pixels written
             n = int(read_pixels(lbuffer, scwidth, 0))
+            print("Pixels Read:", n, "  ", lbuffer[:2*n].hex(sep=' '))
             # Number lower than the requested number means end of stream
             if n < scwidth:
-                n *= 2         # Number of gotten pixels x2 to get number of gotten bytes
-                self._write_data_trunc(lbuffer, n)
+                if n > 0:
+                    n *= 2         # Number of gotten pixels x2 to get number of gotten bytes
+                    self._write_data_trunc(lbuffer, n*2)
                 break
             else:
                 write_data(lbuffer)

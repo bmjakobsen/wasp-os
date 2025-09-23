@@ -83,11 +83,13 @@ class Draw565(object):
 
 
     def rleblit(self, image, pos=(0, 0), fg=0xffff, bg=0):
+        x, y = pos
         (sx, sy, image_data) = image
         stream = self._rle_stream
         stream._setup(image_data, sx, sy)
         stream.set_color(0, bg)
         stream.set_color(1, fg)
+        self.wg.blit(stream, x, y)
 
     def blit(self, image, x, y, fg=0xffff, c1=0x4a69, c2=0x7bef):
         """Decode and draw an encoded image.
@@ -100,9 +102,9 @@ class Draw565(object):
         if len(image) == 3:
             self.rleblit(image, pos=(x, y), fg=fg)
         else: #elif image[0] == 2:
-            sx = image[0]
-            sy = image[1]
-            image_data = image[2:]
+            sx = image[1]
+            sy = image[2]
+            image_data = image[3:]
             stream = self._rle2_stream
             stream._setup(image_data, sx, sy)
             stream.set_color(0, 0)
