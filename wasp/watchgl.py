@@ -710,15 +710,17 @@ class MonoRleImageStream():
 
 
 _R2IS_COLOR = const(3)
-_R2IS_RLEN = const(4)
-_R2IS_INDEX = const(5)
+_R2IS_NXCOLOR = const(4)
+_R2IS_RLEN = const(5)
+_R2IS_INDEX = const(6)
+_R2IS_MAXINDEX = const(7)
 class Rle2ImageStream():
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
     def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
         self._color_format:int = screen_color_format
         self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE4_INITALIZER+_PALETTE4_INITALIZER))
-        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
+        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(8*4)))
         self._setup(raw_data, width, height)
     def _setup(self, raw_data:memoryview, width:int, height:int):
         if width <= 0 or height <= 0:
@@ -733,6 +735,8 @@ class Rle2ImageStream():
         self._extra_state[_SX_WIDTH] = self.width
         # Height
         self._extra_state[_SX_HEIGHT] = self.height
+        #index
+        self._extra_state[_R2IS_MAXINDEX] = len(raw_data)
         self.reset()
 
     def get_remaining(self) -> int:
@@ -757,14 +761,13 @@ class Rle2ImageStream():
 
         #Remaining
         self._extra_state[_SX_REMAINING] = self._n_pixels
-        fbyte:int = raw_data[0]
         #color
-        self._extra_state[_R2IS_COLOR] = (fbyte>>6)&3
+        self._extra_state[_R2IS_COLOR] = 4
+        self._extra_state[_R2IS_NXCOLOR] = 1
         #index
-        self._extra_state[_R2IS_RLEN] = fbyte&0x3F
+        self._extra_state[_R2IS_RLEN] = 0
         #index
         self._extra_state[_R2IS_INDEX] = 0
-        print(0, fbyte&0x3F)
 
     @micropython.viper
     def skip_pixels(self, n:int):
@@ -819,42 +822,50 @@ class Rle2ImageStream():
         raw_data:ptr8 = ptr8(self._raw_data)
 
         color:int = state[_R2IS_COLOR]
+        nxcolor:int = state[_R2IS_NXCOLOR]
         rlen:int = state[_R2IS_RLEN]
         index:int = state[_R2IS_INDEX]
         fbyte:int = 0
-
-        while rlen <= 0:
-            index += 1
-            fbyte = raw_data[index]
-            color = (fbyte>>6)&3
-            rlen = fbyte&0x3F
-            print(index, rlen, offset)
-        color_0 = palette[color]&0xFF
-        color_1 = (palette[color]>>8)&0xFF
+        starting:bool = True
+        max_index = state[_R2IS_MAXINDEX]-1
 
         n2:int = n
         while n2 > 0:
-            n2 -= 1
-            rlen -= 1
-            remaining -= 1
-            buf2[offset] = color_0
-            buf2[offset+1] = color_1
-            offset += 2
-
-            if remaining == 0:
+            if color < 4 and rlen > 0:
+                color_0 = palette[color]&0xFF
+                color_1 = (palette[color]>>8)&0xFF
+                while rlen > 0 and n2 > 0:
+                    buf2[offset] = color_0
+                    buf2[offset+1] = color_1
+                    offset += 2
+                    rlen -= 1
+                    n2 -= 1
+                    remaining -= 1
+                if n2 > 0:
+                    color = 4
+            if n2 == 0:
                 break
-
-            while rlen <= 0:
+            if rlen == 0:
                 index += 1
                 fbyte = raw_data[index]
                 color = (fbyte>>6)&3
                 rlen = fbyte&0x3F
-                print(index, rlen, offset)
-                color_0 = palette[color]&0xFF
-                color_1 = (palette[color]>>8)&0xFF
-
+                if rlen == 0:
+                    index += 1
+                    fbyte = raw_data[index]
+                    palette[nxcolor] = self._clut8_rgb565(fbyte)
+                    nxcolor = (nxcolor+1)&0x3
+                    rlen = 0
+                else:
+                    while index < max_index:
+                        index += 1
+                        fbyte = raw_data[index]
+                        rlen += fbyte
+                        if fbyte >= 255:
+                            break
         state[_SX_REMAINING] = remaining
         state[_R2IS_COLOR] = color
+        state[_R2IS_NXCOLOR] = nxcolor
         state[_R2IS_RLEN] = rlen
         state[_R2IS_INDEX] = index
         return n

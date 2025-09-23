@@ -83,11 +83,10 @@ class LauncherApp():
         page = self._get_page(page_num)
         
         draw.fill()
-        print(0)
         draw_app(page[0],   0,   0)
-        #draw_app(page[1], 120,   0)
-        #draw_app(page[2],   0, 120)
-        #draw_app(page[3], 120, 120)
+        draw_app(page[1], 120,   0)
+        draw_app(page[2],   0, 120)
+        draw_app(page[3], 120, 120)
 
         scroll = self._scroll
         scroll.up = page_num > 0
