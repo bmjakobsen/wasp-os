@@ -442,19 +442,7 @@ class MonoImageStream():
         # Height
         self._extra_state[_SX_HEIGHT] = self.height
 
-
-        #Remaining
-        self._extra_state[_SX_REMAINING] = self._n_pixels
-        #cbyte
-        self._extra_state[_MIS_CBYTE] = self._raw_data[0]
-        #index
-        self._extra_state[_MIS_INDEX] = 0
-        # Remaining in line
-        self._extra_state[_MIS_REM_IN_L] = self.width
-        # Remaining in byte
-        self._extra_state[_MIS_REM_IN_B] = 8
-        if self._extra_state[_MIS_REM_IN_L] < 8:
-            self._extra_state[_MIS_REM_IN_B] = self._extra_state[_MIS_REM_IN_L]
+        self.reset()
 
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
@@ -604,14 +592,7 @@ class MonoRleImageStream():
         self._extra_state[_SX_WIDTH] = self.width
         # Height
         self._extra_state[_SX_HEIGHT] = self.height
-        #Remaining
-        self._extra_state[_SX_REMAINING] = self._n_pixels
-        #cbyte
-        self._extra_state[_MRIS_COLOR] = 0
-        # Remaining in byte
-        self._extra_state[_MRIS_RLEN] = raw_data[0]
-        #index
-        self._extra_state[_MRIS_INDEX] = 0
+        self.reset()
 
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
@@ -752,16 +733,7 @@ class Rle2ImageStream():
         self._extra_state[_SX_WIDTH] = self.width
         # Height
         self._extra_state[_SX_HEIGHT] = self.height
-        #Remaining
-        self._extra_state[_SX_REMAINING] = self._n_pixels
-        fbyte:int = raw_data[0]
-        #cbyte
-        self._extra_state[_R2IS_COLOR] = (fbyte>>6)&3
-        # Remaining in byte
-        self._extra_state[_R2IS_RLEN] = fbyte&0x3F
-        #index
-        self._extra_state[_R2IS_INDEX] = 0
-        print(0, fbyte&0x3F)
+        self.reset()
 
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
