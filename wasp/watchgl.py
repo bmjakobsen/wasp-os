@@ -129,28 +129,34 @@ ALIGNMENT_LEFT = const(1)
 ALIGNMENT_RIGHT = const(2)
 
 
+
 class ImageStream(Protocol):
     width: int
     height: int
     # Reset Stream, or restart it
     def reset(self):
         pass
-    # Skip n Pixels
-    def skip_pixels(self, n:int):
-        pass
+
     # Read n Pixels, into the buffer at the given offset, returns number of pixels read. Offset is in pixels
     # The streams signals that it is emptry by returning a number smaller than the number of requested pixels
     # The stream is never allowed to return less pixels than requested, while the stream has not reached its end
 
     # A Reader can expect that a stream does not have too many pixels, or that the number of remaining pixels changes unless by the amount specified in skip_pixels or when reading_pixels
 
-    def read_pixels(self, buf:memoryview, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf:memoryview, n:int, offset:int) -> int:
         return -1
     # Get Remaining number of pixels, should only be used in a few cases, like ensuring the stream has enough pixels before starting to read it, as it can be slow.
     def get_remaining(self) -> int:
         return -1
     def info(self) -> str:
         return ""
+
+
+_DUMMY_BUFFER:memoryview = memoryview(bytearray(16))
+@micropython.viper
+def _skip_pixels(s, n:int):
+    global _DUMMY_BUFFER
+    s.read_pixels(False, _DUMMY_BUFFER, n, 0)
 
 
 
@@ -242,29 +248,18 @@ class VerticalCropStream():
         self._pixels_n:int = self.height*self.width
         self._skip:int = skip*self.width
 
-        self._instream.skip_pixels(self._skip)
+        _skip_pixels(self._instream, self._skip)
         self._extra_state[_SX_REMAINING] = self._pixels_n
         assert(self._instream.get_remaining() >= self._pixels_n)
     def reset(self):
         self._instream.reset()
-        self._instream.skip_pixels(self._skip)
+        _skip_pixels(self._instream, self._skip)
         self._extra_state[_SX_REMAINING] = self._pixels_n
         assert(self._instream.get_remaining() >= self._pixels_n)
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
     @micropython.viper
-    def skip_pixels(self, n:int):
-        state:ptr32 = ptr32(self._extra_state)
-        remaining:int = state[_SX_REMAINING]
-        if n > remaining:
-            n = remaining
-        if n <= 0:
-            return
-        skip_pixels = self._instream.skip_pixels
-        skip_pixels(n)
-        state[_SX_REMAINING] = remaining - n
-    @micropython.viper
-    def read_pixels(self, buf, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
         remaining:int = state[_SX_REMAINING]
         if n > remaining:
@@ -272,7 +267,7 @@ class VerticalCropStream():
         if n <= 0:
             return 0
         read_pixels = self._instream.read_pixels
-        r:int = int(read_pixels(buf, n, offset))
+        r:int = int(read_pixels(read, buf, n, offset))
         remaining -= r
         state[_SX_REMAINING] = remaining
         return r
@@ -319,7 +314,7 @@ class HorizontalCropStream():
         self._extra_state[_SX_REMAINING] = self._pixels_n
         self._extra_state[_HCS_REM_IN_L] = self.width
         assert(self._instream.get_remaining() >= self._instream_required)
-        self._instream.skip_pixels(self._skip_at_start)
+        _skip_pixels(self._instream, self._skip_at_start)
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
@@ -328,39 +323,10 @@ class HorizontalCropStream():
         self._extra_state[_SX_REMAINING] = self._pixels_n
         self._extra_state[_HCS_REM_IN_L] = self.width
         assert(self._instream.get_remaining() >= self._instream_required)
-        self._instream.skip_pixels(self._skip_at_start)
+        _skip_pixels(self._instream, self._skip_at_start)
+
     @micropython.viper
-    def skip_pixels(self, n:int):
-        state:ptr32 = ptr32(self._extra_state)
-        remaining:int = state[_SX_REMAINING]
-        if n > remaining:
-            n = remaining
-        if n <= 0:
-            return
-
-        skip_pixels = self._instream.skip_pixels
-        skip_total:int = 0
-
-        WIDTH:int = state[_SX_WIDTH]
-        SKIP:int = state[_HCS_SKIP]
-        rem_in_l:int = state[_HCS_REM_IN_L]
-
-        while n > 0:
-            if n >= rem_in_l:
-                skip_total += rem_in_l+SKIP
-                n -= rem_in_l
-                remaining -= rem_in_l
-                rem_in_l = WIDTH
-            else:
-                skip_total += n
-                rem_in_l -= n
-                remaining -= n
-                n = 0
-        skip_pixels(skip_total)
-        state[_SX_REMAINING] = remaining
-        state[_HCS_REM_IN_L] = rem_in_l
-    @micropython.viper
-    def read_pixels(self, buf, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
 
         remaining:int = state[_SX_REMAINING]
@@ -369,7 +335,8 @@ class HorizontalCropStream():
         if n <= 0:
             return 0
 
-        skip_pixels = self._instream.skip_pixels
+        instream = self._instream
+        skip_pixels = _skip_pixels
         read_pixels = self._instream.read_pixels
 
         WIDTH:int = state[_SX_WIDTH]
@@ -379,14 +346,14 @@ class HorizontalCropStream():
         read_bytes:int = 0
         while n > 0:
             if n >= rem_in_l:
-                r = int(read_pixels(buf, rem_in_l, offset+read_bytes))
+                r = int(read_pixels(read, buf, rem_in_l, offset+read_bytes))
                 read_bytes += r
                 n -= rem_in_l
-                skip_pixels(SKIP)
+                skip_pixels(instream, SKIP)
                 remaining -= rem_in_l
                 rem_in_l = WIDTH
             else:
-                r = int(read_pixels(buf, n, offset+read_bytes))
+                r = int(read_pixels(read, buf, n, offset+read_bytes))
                 read_bytes += r
                 rem_in_l -= n
                 remaining -= n
@@ -473,47 +440,7 @@ class MonoImageStream():
         self._extra_state[_MIS_BITSEL] = 0x80
 
     @micropython.viper
-    def skip_pixels(self, n:int):
-        state:ptr32 = ptr32(self._extra_state)
-
-        remaining:int = state[_SX_REMAINING]
-        if n > remaining:
-            n = remaining
-        if n <= 0:
-            return
-
-
-        raw_data:ptr8 = ptr8(self._raw_data)
-
-        WIDTH:int = state[_SX_WIDTH]
-        cbyte:int = state[_MIS_CBYTE]
-        index:int = state[_MIS_INDEX]
-        bitselect:int = state[_MIS_BITSEL]
-        rem_in_l:int = state[_MIS_REM_IN_L]
-
-        while n > 0:
-            n -= 1
-
-            bitselect >>= 1
-            rem_in_l -= 1
-            remaining -= 1
-            if remaining <= 0:
-                break
-            if rem_in_l <= 0:
-                rem_in_l = WIDTH
-                bitselect = 0
-            if bitselect == 0:
-                bitselect = 0x80
-                index += 1
-                cbyte = raw_data[index]
-        state[_SX_REMAINING] = remaining
-        state[_MIS_CBYTE] = cbyte
-        state[_MIS_INDEX] = index
-        state[_MIS_BITSEL] = bitselect
-        state[_MIS_REM_IN_L] = rem_in_l
-
-    @micropython.viper
-    def read_pixels(self, buf, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
 
         buf2:ptr8 = ptr8(buf)
@@ -540,8 +467,9 @@ class MonoImageStream():
             n2 -= 1
 
             color:int = palette[1] if cbyte&bitselect else palette[0]
-            buf2[offset] = color&0xFF
-            buf2[offset+1] = (color>>8)&0xFF
+            if read:
+                buf2[offset] = color&0xFF
+                buf2[offset+1] = (color>>8)&0xFF
             offset += 2
 
 
@@ -619,40 +547,7 @@ class MonoRleImageStream():
         self._extra_state[_MRIS_INDEX] = 0
 
     @micropython.viper
-    def skip_pixels(self, n:int):
-        state:ptr32 = ptr32(self._extra_state)
-
-        remaining:int = state[_SX_REMAINING]
-        if n > remaining:
-            n = remaining
-        if n <= 0:
-            return
-
-
-        raw_data:ptr8 = ptr8(self._raw_data)
-
-        color:int = state[_MRIS_COLOR]
-        rlen:int = state[_MRIS_RLEN]
-        index:int = state[_MRIS_INDEX]
-
-        while n > 0:
-            if rlen <= n:
-                n -= rlen
-                remaining -= rlen
-                color = (color+1)&1
-                index += 1
-                rlen = raw_data[index]
-            else:
-                rlen -= n
-                remaining -= n
-                break
-        state[_SX_REMAINING] = remaining
-        state[_MRIS_COLOR] = color
-        state[_MRIS_RLEN] = rlen
-        state[_MRIS_INDEX] = index
-
-    @micropython.viper
-    def read_pixels(self, buf, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
 
         buf2:ptr8 = ptr8(buf)
@@ -686,8 +581,9 @@ class MonoRleImageStream():
 
             rlen -= 1
             remaining -= 1
-            buf2[offset] = color_0
-            buf2[offset+1] = color_1
+            if read:
+                buf2[offset] = color_0
+                buf2[offset+1] = color_1
             offset += 2
 
 
@@ -801,11 +697,8 @@ class Rle2ImageStream():
         #index
         self._extra_state[_R2IS_INDEX] = -1+ARROFF
 
-    def skip_pixels(self, n:int):
-        self.read_pixels(self._dummy_buf, n, 0, _skip=True)
-
     @micropython.viper
-    def read_pixels(self, buf, n:int, offset:int, _skip:bool=False) -> int:
+    def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
 
         buf2:ptr8 = ptr8(buf)
@@ -836,16 +729,14 @@ class Rle2ImageStream():
             if color < 4 and rlen > 0:
                 color_0 = palette[color]&0xFF
                 color_1 = (palette[color]>>8)&0xFF
-                read = 0
                 while rlen > 0 and n2 > 0:
-                    if not _skip:
+                    if read:
                         buf2[offset] = color_0
                         buf2[offset+1] = color_1
                     offset += 2
                     rlen -= 1
                     n2 -= 1
                     remaining -= 1
-                    read += 1
             if n2 == 0:
                 break
             if rlen == 0:
@@ -1564,13 +1455,7 @@ class DummyImageStream():
         return self._remaining
     def reset(self):
          self._remaining = self.width*self.height
-    def skip_pixels(self, n:int):
-        if n > self._remaining:
-            n = self._remaining
-        if n <= 0:
-            return
-        self._remaining -= n
-    def read_pixels(self, buf:memoryview, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf:memoryview, n:int, offset:int) -> int:
         if n > self._remaining:
             n = self._remaining
         if n <= 0:
