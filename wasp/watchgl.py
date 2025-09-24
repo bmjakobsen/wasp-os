@@ -420,7 +420,7 @@ def _convert_color_to_format(format:int, color:int) -> int:
 _MIS_CBYTE = const(3)
 _MIS_INDEX = const(4)
 _MIS_REM_IN_L = const(5)
-_MIS_REM_IN_B = const(6)
+_MIS_BITSEL = const(6)
 # Streamer for reading a memoryview (1 byte per element) as an uncompressed image, with one bit per pixel
 class MonoImageStream():
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
@@ -467,9 +467,7 @@ class MonoImageStream():
         # Remaining in line
         self._extra_state[_MIS_REM_IN_L] = self.width
         # Remaining in byte
-        self._extra_state[_MIS_REM_IN_B] = 8
-        if self._extra_state[_MIS_REM_IN_L] < 8:
-            self._extra_state[_MIS_REM_IN_B] = self._extra_state[_MIS_REM_IN_L]
+        self._extra_state[_MIS_BITSEL] = 0x80
 
     @micropython.viper
     def skip_pixels(self, n:int):
@@ -487,30 +485,28 @@ class MonoImageStream():
         WIDTH:int = state[_SX_WIDTH]
         cbyte:int = state[_MIS_CBYTE]
         index:int = state[_MIS_INDEX]
-        rem_in_b:int = state[_MIS_REM_IN_B]
+        bitselect:int = state[_MIS_BITSEL]
         rem_in_l:int = state[_MIS_REM_IN_L]
 
         while n > 0:
             n -= 1
 
-            cbyte >>= 1
-            rem_in_b -= 1
+            bitselect >>= 1
             rem_in_l -= 1
             remaining -= 1
             if remaining <= 0:
                 break
-            if rem_in_b == 0:
-                rem_in_b = 8
-                if rem_in_l <= 0:
-                    rem_in_l = WIDTH
-                elif rem_in_l < 8:
-                    rem_in_b = rem_in_l
+            if rem_in_l <= 0:
+                rem_in_l = WIDTH
+                bitselect = 0
+            if bitselect == 0:
+                bitselect = 0x80
                 index += 1
                 cbyte = raw_data[index]
         state[_SX_REMAINING] = remaining
         state[_MIS_CBYTE] = cbyte
         state[_MIS_INDEX] = index
-        state[_MIS_REM_IN_B] = rem_in_b
+        state[_MIS_BITSEL] = bitselect
         state[_MIS_REM_IN_L] = rem_in_l
 
     @micropython.viper
@@ -533,36 +529,35 @@ class MonoImageStream():
         WIDTH:int = state[_SX_WIDTH]
         cbyte:int = state[_MIS_CBYTE]
         index:int = state[_MIS_INDEX]
-        rem_in_b:int = state[_MIS_REM_IN_B]
+        bitselect:int = state[_MIS_BITSEL]
         rem_in_l:int = state[_MIS_REM_IN_L]
 
         n2:int = n
         while n2 > 0:
             n2 -= 1
 
-            color:int = palette[cbyte&1]
+            color:int = palette[1] if cbyte&bitselect else palette[0]
             buf2[offset] = color&0xFF
             buf2[offset+1] = (color>>8)&0xFF
             offset += 2
 
-            cbyte >>= 1
-            rem_in_b -= 1
+
+            bitselect >>= 1
             rem_in_l -= 1
             remaining -= 1
             if remaining <= 0:
                 break
-            if rem_in_b <= 0:
-                rem_in_b = 8
-                if rem_in_l <= 0:
-                    rem_in_l = WIDTH
-                elif rem_in_l < 8:
-                    rem_in_b = rem_in_l
+            if rem_in_l <= 0:
+                rem_in_l = WIDTH
+                bitselect = 0
+            if bitselect == 0:
+                bitselect = 0x80
                 index += 1
                 cbyte = raw_data[index]
         state[_SX_REMAINING] = remaining
         state[_MIS_CBYTE] = cbyte
         state[_MIS_INDEX] = index
-        state[_MIS_REM_IN_B] = rem_in_b
+        state[_MIS_BITSEL] = bitselect
         state[_MIS_REM_IN_L] = rem_in_l
         return n
     def info(self) -> str:
@@ -1118,7 +1113,7 @@ class _LegacyFontWrapper():
         self._setup(font_data)
     def _setup(self, font_data):
         self._fgcolor:int = _DEFAULT_TEXT_FGCOLOR
-        self._bitblit.set_color(0, _DEFAULT_TEXT_FGCOLOR)
+        self._bitblit.set_color(1, _DEFAULT_TEXT_FGCOLOR)
 
         self.height:int = int(font_data.height())
         self.max_width:int = int(font_data.max_width())
@@ -1519,11 +1514,12 @@ class WatchGraphics():
             cw:int = int(cpx.width)
             ch:int = int(cpx.height)
             if x+cw <= 0:
-                x += cw
+                x += cw + 1
                 continue
             if x >= window_width:
                 break
             self.blit(cpx, x, y)
+            x += cw + 1
 
     def draw_string_a(self, color:int, s:str, x:int, y:int, align:int):
         (rw, rh) = self.string_bounding_box(s)

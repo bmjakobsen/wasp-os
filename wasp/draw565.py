@@ -152,6 +152,7 @@ class Draw565(object):
         fg = self._fg
         bg = self._bg
 
+
         if width:
             (w, h) = self.wg.string_bounding_box(s)
             if right:
