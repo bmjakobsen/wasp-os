@@ -215,10 +215,12 @@ class DisplayProtocol(Protocol):
 
 
 
+
+ARROFF = const(0x10000)
+
 _SX_WIDTH = const(0)
 _SX_HEIGHT = const(1)
 _SX_REMAINING = const(2)
-
 
 # Image Stream used to wrap another image stream and crop it vertically, by specifiying the new reduced height, and the number of lines skipped at the start
 class VerticalCropStream():
@@ -426,7 +428,7 @@ class MonoImageStream():
     def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
         self._color_format:int = screen_color_format
         self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER))
-        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(7*4)))
+        self._extra_state:memoryview = memoryview(array('i', bytearray(7*4)))
         self._setup(raw_data, width, height)
     def _setup(self, raw_data:memoryview, width:int, height:int):
         if width <= 0 or height <= 0:
@@ -709,6 +711,33 @@ class MonoRleImageStream():
 
 
 
+
+
+
+
+
+@micropython.viper
+def _clut8_rgb565(i: int) -> int:
+    if i < 216:
+        rgb565  = (( i  % 6) * 0x33) >> 3
+        rg = i // 6
+        rgb565 += ((rg  % 6) * (0x33 << 3)) & 0x07e0
+        rgb565 += ((rg // 6) * (0x33 << 8)) & 0xf800
+    elif i < 252:
+        i -= 216
+        rgb565  = (0x7f + (( i  % 3) * 0x33)) >> 3
+        rg = i // 3
+        rgb565 += ((0x4c << 3) + ((rg  % 4) * (0x33 << 3))) & 0x07e0
+        rgb565 += ((0x7f << 8) + ((rg // 4) * (0x33 << 8))) & 0xf800
+    else:
+        i -= 252
+        gr6 = (0x2c + (0x10 * i)) >> 2
+        gr5 = gr6 >> 1
+        rgb565 = (gr5 << 11) + (gr6 << 5) + gr5
+
+    return rgb565
+
+
 _R2IS_COLOR = const(3)
 _R2IS_NXCOLOR = const(4)
 _R2IS_RLEN = const(5)
@@ -721,6 +750,7 @@ class Rle2ImageStream():
         self._color_format:int = screen_color_format
         self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE4_INITALIZER+_PALETTE4_INITALIZER))
         self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(8*4)))
+        self._dummy_buf:memoryview = memoryview(bytearray(1))
         self._setup(raw_data, width, height)
     def _setup(self, raw_data:memoryview, width:int, height:int):
         if width <= 0 or height <= 0:
@@ -736,7 +766,7 @@ class Rle2ImageStream():
         # Height
         self._extra_state[_SX_HEIGHT] = self.height
         #index
-        self._extra_state[_R2IS_MAXINDEX] = len(raw_data)
+        self._extra_state[_R2IS_MAXINDEX] = len(raw_data)-1
         self.reset()
 
     def get_remaining(self) -> int:
@@ -767,45 +797,13 @@ class Rle2ImageStream():
         #index
         self._extra_state[_R2IS_RLEN] = 0
         #index
-        self._extra_state[_R2IS_INDEX] = 0
+        self._extra_state[_R2IS_INDEX] = -1+ARROFF
 
-    @micropython.viper
     def skip_pixels(self, n:int):
-        state:ptr32 = ptr32(self._extra_state)
-
-        remaining:int = state[_SX_REMAINING]
-        if n > remaining:
-            n = remaining
-        if n <= 0:
-            return
-
-
-        raw_data:ptr8 = ptr8(self._raw_data)
-
-        color:int = state[_R2IS_COLOR]
-        rlen:int = state[_R2IS_RLEN]
-        index:int = state[_R2IS_INDEX]
-        fbyte:int = 0
-
-        while n > 0:
-            if rlen <= n:
-                n -= rlen
-                remaining -= rlen
-                index += 1
-                fbyte = raw_data[index]
-                color = (fbyte>>6)&3
-                rlen = fbyte&0x3F
-            else:
-                rlen -= n
-                remaining -= n
-                break
-        state[_SX_REMAINING] = remaining
-        state[_R2IS_COLOR] = color
-        state[_R2IS_RLEN] = rlen
-        state[_R2IS_INDEX] = index
+        self.read_pixels(self._dummy_buf, n, 0, _skip=True)
 
     @micropython.viper
-    def read_pixels(self, buf, n:int, offset:int) -> int:
+    def read_pixels(self, buf, n:int, offset:int, _skip:bool=False) -> int:
         state:ptr32 = ptr32(self._extra_state)
 
         buf2:ptr8 = ptr8(buf)
@@ -824,25 +822,28 @@ class Rle2ImageStream():
         color:int = state[_R2IS_COLOR]
         nxcolor:int = state[_R2IS_NXCOLOR]
         rlen:int = state[_R2IS_RLEN]
-        index:int = state[_R2IS_INDEX]
+        index:int = state[_R2IS_INDEX]-ARROFF
         fbyte:int = 0
-        starting:bool = True
-        max_index = state[_R2IS_MAXINDEX]-1
+        max_index = state[_R2IS_MAXINDEX]
+
+        clut8_rgb565 = _clut8_rgb565
+
 
         n2:int = n
         while n2 > 0:
             if color < 4 and rlen > 0:
                 color_0 = palette[color]&0xFF
                 color_1 = (palette[color]>>8)&0xFF
+                read = 0
                 while rlen > 0 and n2 > 0:
-                    buf2[offset] = color_0
-                    buf2[offset+1] = color_1
+                    if not _skip:
+                        buf2[offset] = color_0
+                        buf2[offset+1] = color_1
                     offset += 2
                     rlen -= 1
                     n2 -= 1
                     remaining -= 1
-                if n2 > 0:
-                    color = 4
+                    read += 1
             if n2 == 0:
                 break
             if rlen == 0:
@@ -853,21 +854,23 @@ class Rle2ImageStream():
                 if rlen == 0:
                     index += 1
                     fbyte = raw_data[index]
-                    palette[nxcolor] = self._clut8_rgb565(fbyte)
-                    nxcolor = (nxcolor+1)&0x3
+                    palette[nxcolor] = clut8_rgb565(fbyte)
+                    nxcolor += 1
+                    if nxcolor > 3:
+                        ncolor = 1
                     rlen = 0
-                else:
+                elif rlen == 63:
                     while index < max_index:
                         index += 1
                         fbyte = raw_data[index]
                         rlen += fbyte
-                        if fbyte >= 255:
+                        if fbyte < 255:
                             break
         state[_SX_REMAINING] = remaining
         state[_R2IS_COLOR] = color
         state[_R2IS_NXCOLOR] = nxcolor
         state[_R2IS_RLEN] = rlen
-        state[_R2IS_INDEX] = index
+        state[_R2IS_INDEX] = index+ARROFF
         return n
     def info(self) -> str:
         return "Rle2ImageStream("+str(self.width)+", "+str(self.height)+")"
