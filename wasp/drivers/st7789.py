@@ -245,7 +245,7 @@ class ST7789(object):
             # Read up to scwidth pixels into the buffer, method returns the number of pixels written
             n = int(read_pixels(lbuffer, scwidth, 0))
             print(0, end="")
-            #print("Pixels Read:", n, "  ", lbuffer[:2*n].hex(sep=' '))
+            print("Pixels Read:", n, "  ", lbuffer[:2*n].hex(sep=' '))
             # Number lower than the requested number means end of stream
             if n < scwidth:
                 if n > 0:

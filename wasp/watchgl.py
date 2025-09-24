@@ -399,8 +399,8 @@ class HorizontalCropStream():
 
 
 _DEFAULT_TEXT_FGCOLOR:int = const(0xFFFF)
-_PALETTE2_INITALIZER = [0, _DEFAULT_TEXT_FGCOLOR]
-_PALETTE4_INITALIZER = [0, 0x4a69, 0x7bef, _DEFAULT_TEXT_FGCOLOR]
+_PALETTE2_INITALIZER = [0, 0xFFFF]
+_PALETTE4_INITALIZER = [0, 0x4a69, 0x7bef, 0xFFFF]
 
 
 
@@ -430,6 +430,8 @@ class MonoImageStream():
         self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER))
         self._extra_state:memoryview = memoryview(array('i', bytearray(7*4)))
         self._setup(raw_data, width, height)
+        for i in range(2):
+            self._palette[i] = _convert_color_to_format(screen_color_format, self._palette[i])
     def _setup(self, raw_data:memoryview, width:int, height:int):
         if width <= 0 or height <= 0:
             raise Exception("Image must have a positive size greater than 0")
@@ -438,6 +440,7 @@ class MonoImageStream():
         self.width:int = width
         self.height:int = height
         self._n_pixels:int = width*height
+
 
         # Width
         self._extra_state[_SX_WIDTH] = self.width
@@ -575,6 +578,8 @@ class MonoRleImageStream():
         self._color_format:int = screen_color_format
         self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER))
         self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
+        for i in range(2):
+            self._palette[i] = _convert_color_to_format(screen_color_format, self._palette[i])
         self._setup(raw_data, width, height)
     def _setup(self, raw_data:memoryview, width:int, height:int):
         if width <= 0 or height <= 0:
@@ -712,7 +717,7 @@ class MonoRleImageStream():
 
 
 @micropython.viper
-def _clut8_rgb565(i: int) -> int:
+def _clut8_rgb565(color_format:int, i: int) -> int:
     if i < 216:
         rgb565  = (( i  % 6) * 0x33) >> 3
         rg = i // 6
@@ -730,7 +735,7 @@ def _clut8_rgb565(i: int) -> int:
         gr5 = gr6 >> 1
         rgb565 = (gr5 << 11) + (gr6 << 5) + gr5
 
-    return rgb565
+    return _convert_color_to_format(color_format, rgb565)
 
 
 _R2IS_COLOR = const(3)
@@ -746,6 +751,8 @@ class Rle2ImageStream():
         self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE4_INITALIZER+_PALETTE4_INITALIZER))
         self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(8*4)))
         self._dummy_buf:memoryview = memoryview(bytearray(1))
+        for i in range(8):
+            self._palette[i] = _convert_color_to_format(screen_color_format, self._palette[i])
         self._setup(raw_data, width, height)
     def _setup(self, raw_data:memoryview, width:int, height:int):
         if width <= 0 or height <= 0:
@@ -849,7 +856,7 @@ class Rle2ImageStream():
                 if rlen == 0:
                     index += 1
                     fbyte = raw_data[index]
-                    palette[nxcolor] = clut8_rgb565(fbyte)
+                    palette[nxcolor] = clut8_rgb565(self._color_format, fbyte)
                     nxcolor += 1
                     if nxcolor > 3:
                         ncolor = 1
