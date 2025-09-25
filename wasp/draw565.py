@@ -221,9 +221,9 @@ class Draw565(object):
                     end = i
                     break
                 ch = s[i]
-                pxd = font.get_ch(ch)
-                h = pxd.height
-                w = pxd.width
+                font._set_ch(ch)
+                h = font.height
+                w = font.width
                 l += w + 1
                 if l > width:
                     if end <= start:

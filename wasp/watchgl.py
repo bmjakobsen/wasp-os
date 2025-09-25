@@ -390,17 +390,25 @@ _MIS_REM_IN_L = const(5)
 _MIS_BITSEL = const(6)
 _MIS_WEXTEND = const(1)
 # Streamer for reading a memoryview (1 byte per element) as an uncompressed image, with one bit per pixel
-class MonoImageStream():
+class WaspFontStream():
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
-    def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
+    def __init__(self, screen_color_format:int, font):
         self._color_format:int = screen_color_format
-        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER))
+        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER+_PALETTE2_INITALIZER))
         self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(7*4)))
-        for i in range(2):
+        for i in range(4):
             self._palette[i] = _convert_color_to_format(screen_color_format, self._palette[i])
-        self._setup(raw_data, width, height)
-    def _setup(self, raw_data:memoryview, width:int, height:int):
+        self._current_char = 'T'
+        self._set_font(font)
+    def _set_font(self, font):
+        self._font_height:int = font.height()
+        self._font_max_width:int = font.max_width()
+        self._font = font
+        self._set_ch(self._current_char)
+    def _set_ch(self, ch:str):
+        raw_data, height, width = self._font.get_ch(ch)
+        self._current_char = ch
         if width <= 0 or height <= 0:
             raise Exception("Image must have a positive size greater than 0")
 
@@ -425,7 +433,6 @@ class MonoImageStream():
         if n < 0 or n > 1:
             raise Exception("Invalid Palette Index")
         self._palette[n] = _convert_color_to_format(self._color_format, color)
-
 
     def reset(self):
         # Set State required for reading the image
@@ -497,7 +504,7 @@ class MonoImageStream():
         state[_MIS_REM_IN_L] = rem_in_l
         return n
     def info(self) -> str:
-        return "MonoImageStream("+str(self.width)+", "+str(self.height)+")"
+        return "WaspFontStream("+str(self.width)+", "+str(self.height)+")"
 
 
 
@@ -1009,38 +1016,6 @@ class Screen():
 
 
 
-class _LegacyFontWrapper():
-    def __init__(self, font_data, color_format:int):
-        (px, h, w) = font_data.get_ch('T')
-        self._bitblit:MonoImageStream = MonoImageStream(color_format, px, w, h)
-        self._setup(font_data)
-    def _setup(self, font_data):
-        self._fgcolor:int = _DEFAULT_TEXT_FGCOLOR
-        self._bitblit._set_color(1, _DEFAULT_TEXT_FGCOLOR)
-
-        self.height:int = int(font_data.height())
-        self.max_width:int = int(font_data.max_width())
-        self.baseline:int = int(font_data.baseline())
-        self.hmap:bool = bool(font_data.hmap())
-        self.reverse:bool = bool(font_data.reverse())
-        self.monospaced:bool = bool(font_data.monospaced())
-        self.min_ch:int = int(font_data.min_ch())
-        self.max_ch:int = int(font_data.max_ch())
-        self._raw_data = font_data
-    def set_bgcolor(self, color:int):
-        self._bitblit._set_color(0, color)
-    def set_fgcolor(self, color:int):
-        if self._fgcolor != color:
-            self._bitblit._set_color(1, color)
-            self._fgcolor = color
-    def get_ch(self, ch:str) -> MonoImageStream:
-        (px, h, w) = self._raw_data.get_ch(ch)
-        bitblit:MonoImageStream = self._bitblit
-        bitblit._setup(px, w, h)
-        return bitblit
-
-
-
 
 
 _WGWI_WIDTH = const(0)
@@ -1059,7 +1034,7 @@ class WatchGraphics():
     def __init__(self, display:DisplayProtocol, gc_collect:bool=True):
         self.display:DisplayProtocol = display
 
-        self._font:_LegacyFontWrapper = _LegacyFontWrapper(fonts.sans24, display.spec.color_format)
+        self._font:WaspFontStream = WaspFontStream(display.spec.color_format, fonts.sans24)
 
         self.bgcolor:int = _DEFAULT_BGCOLOR
         self._text_bgcolor:int = _DEFAULT_BGCOLOR
@@ -1091,14 +1066,18 @@ class WatchGraphics():
             _gc_collect()
 
     def set_font(self, font):
-        self._font._setup(font)
+        self._font._set_font(font)
 
     def _set_screen_context(self, bgcolor:int):
-        self._set_bgcolor(bgcolor)
+        self.bgcolor = bgcolor
+        self._set_component_context(0, 0, self.display.spec.width, self.display.spec.height, 0)
 
     def _set_bgcolor(self, bgcolor:int):
         self.bgcolor = bgcolor
-        self._set_component_context(0, 0, self.display.spec.width, self.display.spec.height, 0)
+        if self._text_bgcolor != bgcolor or self._text_bgcolor_modified:
+            self._text_bgcolor = bgcolor
+            self._text_bgcolor_modified = False
+            self._font._set_color(0, bgcolor)
 
     def _set_component_context(self, x:int, y:int, width:int, height:int, shift_y:int):
         self.width = width
@@ -1107,7 +1086,7 @@ class WatchGraphics():
         if self._text_bgcolor != bgcolor or self._text_bgcolor_modified:
             self._text_bgcolor = bgcolor
             self._text_bgcolor_modified = False
-            self._font.set_bgcolor(bgcolor)
+            self._font._set_color(0, bgcolor)
 
         # Setup window info
         self._window_info[_WGWI_WIDTH] = self.width
@@ -1391,13 +1370,13 @@ class WatchGraphics():
     # Get bounding box of a string drawn on the screen
     @micropython.native
     def string_bounding_box(self, s:str) -> tuple[int, int]:
-        font:_LegacyFontWrapper = self._font
-        height:int = font.height
+        font:WaspFontStream = self._font
+        height:int = font._font_height
         width:int = 0
         for c in s:
-            cpx = font.get_ch(c)
-            cw2:int = int(cpx.width)
-            ch2:int = int(cpx.height)
+            font._set_ch(c)
+            cw2:int = int(font.width)
+            ch2:int = int(font.height)
             width += cw2
             if ch2 > height:
                 height = ch2
@@ -1410,9 +1389,9 @@ class WatchGraphics():
     def draw_string(self, color:int, s:str, x:int, y:int):
         window_width:int = self.width
         window_height:int = self.height
-        font:_LegacyFontWrapper = self._font
-        font.set_fgcolor(color)
-        font_height = font.height
+        font:WaspFontStream = self._font
+        font._set_color(1, color)
+        font_height = font._font_height
 
         if y >= window_height:
             return
@@ -1422,15 +1401,15 @@ class WatchGraphics():
             return
 
         for c in s:
-            cpx = font.get_ch(c)
-            cw:int = int(cpx.width)
-            ch:int = int(cpx.height)
+            font._set_ch(c)
+            cw:int = int(font.width)
+            ch:int = int(font.height)
             if x+cw <= 0:
                 x += cw
                 continue
             if x >= window_width:
                 break
-            self.blit(cpx, x, y)
+            self.blit(font, x, y)
             x += cw
 
     def draw_string_a(self, color:int, s:str, x:int, y:int, align:int):
