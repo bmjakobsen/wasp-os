@@ -10,7 +10,7 @@ import fonts.sans24
 import math
 import micropython
 
-from watchgl import MonoRleImageStream, Rle2ImageStream
+from watchgl import WaspRle1ImageStream, WaspRle2ImageStream
 
 from micropython import const
 
@@ -39,8 +39,8 @@ class Draw565(object):
 
         self.wg = wg
 
-        self._rle_stream = MonoRleImageStream(wg.display.spec.color_format, memoryview(b'\x08'), 8, 1)
-        self._rle2_stream = Rle2ImageStream(wg.display.spec.color_format, memoryview(b'\x08'), 8, 1)
+        self._rle_stream = WaspRle1ImageStream(wg.display.spec.color_format, memoryview(b'\x08'), 8, 1)
+        self._rle2_stream = WaspRle2ImageStream(wg.display.spec.color_format, memoryview(b'\x08'), 8, 1)
 
         self._rle_stream._set_color(0, 0)
         self._rle_stream._set_color(1, 0xFFFF)

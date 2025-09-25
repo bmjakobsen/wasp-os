@@ -504,14 +504,14 @@ class WaspFontStream():
         state[_MIS_REM_IN_L] = rem_in_l
         return n
     def info(self) -> str:
-        return "WaspFontStream("+str(self.width)+", "+str(self.height)+")"
+        return "WaspFontStream("+str(self._current_char)+", "+str(self.width)+", "+str(self.height)+")"
 
 
 
 _MRIS_COLOR = const(3)
 _MRIS_RLEN = const(4)
 _MRIS_INDEX = const(5)
-class MonoRleImageStream():
+class WaspRle1ImageStream():
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
     def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
@@ -614,7 +614,7 @@ class MonoRleImageStream():
         state[_MRIS_INDEX] = index
         return n
     def info(self) -> str:
-        return "MonoRleImageStream("+str(self.width)+", "+str(self.height)+")"
+        return "WaspRle1ImageStream("+str(self.width)+", "+str(self.height)+")"
 
 
 
@@ -651,7 +651,7 @@ _R2IS_NXCOLOR = const(4)
 _R2IS_RLEN = const(5)
 _R2IS_INDEX = const(6)
 _R2IS_MAXINDEX = const(7)
-class Rle2ImageStream():
+class WaspRle2ImageStream():
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
     def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
@@ -778,7 +778,7 @@ class Rle2ImageStream():
         state[_R2IS_INDEX] = index+ARROFF
         return n
     def info(self) -> str:
-        return "Rle2ImageStream("+str(self.width)+", "+str(self.height)+")"
+        return "WaspRle2ImageStream("+str(self.width)+", "+str(self.height)+")"
 
 
 
