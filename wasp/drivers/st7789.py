@@ -190,13 +190,8 @@ class ST7789(object):
 
 
 
-    def _write_data_trunc(self, buf:memoryview, len:int):
-        self.write_data(buf[:len])
-
     @micropython.viper
     def wgl_fill(self, color:int, x:int, y:int, width:int, height:int):
-        #print("FILL "+hex(color)+": X:"+str(x)+", Y:"+str(y)+", W:"+str(width)+", H:"+str(height))
-        # Populate the line buffer
         lbuffer = self.linebuffer
         buf:ptr8 = ptr8(lbuffer)
         scwidth:int = int(self.width)
@@ -219,13 +214,17 @@ class ST7789(object):
 
         self.set_window(x, y, width, height)
 
-        write_data = self.write_data
+        #print("FILL: ", x, y, width, height)
+
+        self.quick_start()
+        quick_write = self.quick_write
         # Do the fill
         for _ in range(full_rows):
-            write_data(lbuffer)
+            quick_write(lbuffer)
         if last_row > 0:
-            last_row *= 2      # Last row x 2 to get number of bytes instead of number of pixels
-            self._write_data_trunc(lbuffer, last_row)
+            last_row <<= 1      # Last row x 2 to get number of bytes instead of number of pixels
+            quick_write(lbuffer[:last_row])
+        self.quick_end()
 
     @micropython.viper
     def wgl_blit(self, image, x:int, y:int):
@@ -233,28 +232,27 @@ class ST7789(object):
         lbuffer = self.linebuffer
         scwidth:int = int(self.width)
 
-        print("BLIT:  X:"+str(x)+", Y:"+str(y)+", W:"+str(image.width)+", H:"+str(image.height))
-        print(image.info())
+        #print("BLIT:  X:"+str(x)+", Y:"+str(y)+", W:"+str(image.width)+", H:"+str(image.height)+"                    "+image.info())
         self.set_window(x, y, image.width, image.height)
 
 
         read_pixels = image.read_pixels
         n:int = 0
-        write_data = self.write_data
+        self.quick_start()
+        quick_write = self.quick_write
         while True:
             # Read up to scwidth pixels into the buffer, method returns the number of pixels written
             n = int(read_pixels(True, lbuffer, scwidth, 0))
-            #print(0, end="")
             #print("Pixels Read:", n, "  ", lbuffer[:2*n].hex(sep=' '))
             # Number lower than the requested number means end of stream
             if n < scwidth:
                 if n > 0:
-                    n *= 2         # Number of gotten pixels x2 to get number of gotten bytes
-                    self._write_data_trunc(lbuffer, n*2)
+                    n <<= 1         # Number of gotten pixels x2 to get number of gotten bytes
+                    quick_write(lbuffer[:n])
                 break
             else:
-                write_data(lbuffer)
-        print()
+                quick_write(lbuffer)
+        self.quick_end()
 
 
 

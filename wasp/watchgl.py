@@ -388,6 +388,7 @@ _MIS_CBYTE = const(3)
 _MIS_INDEX = const(4)
 _MIS_REM_IN_L = const(5)
 _MIS_BITSEL = const(6)
+_MIS_WEXTEND = const(1)
 # Streamer for reading a memoryview (1 byte per element) as an uncompressed image, with one bit per pixel
 class MonoImageStream():
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
@@ -395,14 +396,15 @@ class MonoImageStream():
     def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
         self._color_format:int = screen_color_format
         self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER))
-        self._extra_state:memoryview = memoryview(array('i', bytearray(7*4)))
-        self._setup(raw_data, width, height)
+        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(7*4)))
         for i in range(2):
             self._palette[i] = _convert_color_to_format(screen_color_format, self._palette[i])
+        self._setup(raw_data, width, height)
     def _setup(self, raw_data:memoryview, width:int, height:int):
         if width <= 0 or height <= 0:
             raise Exception("Image must have a positive size greater than 0")
 
+        width += _MIS_WEXTEND
         self._raw_data:memoryview = raw_data
         self.width:int = width
         self.height:int = height
@@ -419,7 +421,7 @@ class MonoImageStream():
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
-    def set_color(self, n:int, color:int):
+    def _set_color(self, n:int, color:int):
         if n < 0 or n > 1:
             raise Exception("Invalid Palette Index")
         self._palette[n] = _convert_color_to_format(self._color_format, color)
@@ -478,6 +480,9 @@ class MonoImageStream():
             remaining -= 1
             if remaining <= 0:
                 break
+            if rem_in_l <= _MIS_WEXTEND and rem_in_l > 0:
+                bitselect = 0
+                continue
             if rem_in_l <= 0:
                 rem_in_l = WIDTH
                 bitselect = 0
@@ -527,7 +532,7 @@ class MonoRleImageStream():
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
-    def set_color(self, n:int, color:int):
+    def _set_color(self, n:int, color:int):
         if n < 0 or n > 1:
             raise Exception("Invalid Palette Index")
         self._palette[n] = _convert_color_to_format(self._color_format, color)
@@ -670,7 +675,7 @@ class Rle2ImageStream():
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
-    def set_color(self, n:int, color:int):
+    def _set_color(self, n:int, color:int):
         if n < 0 or n > 3:
             raise Exception("Invalid Palette Index")
         c = _convert_color_to_format(self._color_format, color)
@@ -747,10 +752,10 @@ class Rle2ImageStream():
                 if rlen == 0:
                     index += 1
                     fbyte = raw_data[index]
-                    palette[nxcolor] = clut8_rgb565(self._color_format, fbyte)
+                    palette[nxcolor] = clut8_rgb565(self._color_format, fbyte)&0xFFFF
                     nxcolor += 1
                     if nxcolor > 3:
-                        ncolor = 1
+                        nxcolor = 1
                     rlen = 0
                 elif rlen == 63:
                     while index < max_index:
@@ -1007,11 +1012,11 @@ class Screen():
 class _LegacyFontWrapper():
     def __init__(self, font_data, color_format:int):
         (px, h, w) = font_data.get_ch('T')
-        self._bitblit:MonoImageStream = MonoImageStream(color_format, px, h, w)
+        self._bitblit:MonoImageStream = MonoImageStream(color_format, px, w, h)
         self._setup(font_data)
     def _setup(self, font_data):
         self._fgcolor:int = _DEFAULT_TEXT_FGCOLOR
-        self._bitblit.set_color(1, _DEFAULT_TEXT_FGCOLOR)
+        self._bitblit._set_color(1, _DEFAULT_TEXT_FGCOLOR)
 
         self.height:int = int(font_data.height())
         self.max_width:int = int(font_data.max_width())
@@ -1023,10 +1028,10 @@ class _LegacyFontWrapper():
         self.max_ch:int = int(font_data.max_ch())
         self._raw_data = font_data
     def set_bgcolor(self, color:int):
-        self._bitblit.set_color(0, color)
+        self._bitblit._set_color(0, color)
     def set_fgcolor(self, color:int):
         if self._fgcolor != color:
-            self._bitblit.set_color(1, color)
+            self._bitblit._set_color(1, color)
             self._fgcolor = color
     def get_ch(self, ch:str) -> MonoImageStream:
         (px, h, w) = self._raw_data.get_ch(ch)
@@ -1150,34 +1155,40 @@ class WatchGraphics():
         skip_lines:int = 0
         if y < 0:
             skip_lines -= y
+            height += y
+            y = 0
         reduce_by_lines:int = skip_lines
-        if y+height > window_height:
-            reduce_by_lines += (y+height)-window_height
+        stripped_lines:int = (y+height)-window_height
+        if stripped_lines > 0:
+            reduce_by_lines += stripped_lines
+            height -= stripped_lines
+        if height <= 0:
+            return
 
         skip_cols:int = 0
         if x < 0:
             skip_cols -= x
+            width += x
+            x = 0
         reduce_by_cols:int = skip_cols
-        if x+width > window_width:
-            reduce_by_cols += (x+width)-window_width
+        stripped_cols:int = (x+width)-window_width
+        if stripped_cols > 0:
+            reduce_by_cols += stripped_cols
+            width -= stripped_cols
+        if width <= 0:
+            return
 
-        if reduce_by_lines == 0 and reduce_by_cols == 0:
+        if reduce_by_lines <= 0 and reduce_by_cols <= 0:
             self.display.wgl_blit(image, x, y)
             return
 
         if reduce_by_lines > 0:
-            height -= reduce_by_lines
-            if height <= 0:
-                return
             croppedy:VerticalCropStream = self._crop_v_stream
             croppedy._setup(image, skip_lines, height)
             image = croppedy
             y += skip_lines
 
         if reduce_by_cols > 0:
-            width -= reduce_by_cols
-            if width <= 0:
-                return
             croppedx:HorizontalCropStream = self._crop_h_stream
             croppedx._setup(image, skip_cols, width)
             image = croppedx
