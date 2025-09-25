@@ -197,15 +197,8 @@ class ST7789(object):
         scwidth:int = int(self.width)
         pixels:int = width*height
 
-        full_rows:int = 0
-        last_row:int = 0
-        if scwidth > pixels:
-            scwidth = pixels
-            full_rows = 1
-            last_row = 0
-        else:
-            full_rows:int = pixels//scwidth
-            last_row:int = pixels%scwidth
+        full_rows:int = pixels//scwidth
+        last_row:int = pixels%scwidth
 
         color &= 0xFFFF
         for xi in range(0, 2*scwidth, 2):
@@ -217,13 +210,17 @@ class ST7789(object):
         #print("FILL: ", x, y, width, height)
 
         self.quick_start()
-        quick_write = self.quick_write
+        write_data = self.quick_write
+
+
         # Do the fill
-        for _ in range(full_rows):
-            quick_write(lbuffer)
+        n:int = 0
+        while n < full_rows:
+            n += 1
+            write_data(lbuffer)
         if last_row > 0:
             last_row <<= 1      # Last row x 2 to get number of bytes instead of number of pixels
-            quick_write(lbuffer[:last_row])
+            write_data(lbuffer[:last_row])
         self.quick_end()
 
     @micropython.viper
@@ -239,7 +236,7 @@ class ST7789(object):
         read_pixels = image.read_pixels
         n:int = 0
         self.quick_start()
-        quick_write = self.quick_write
+        write_data = self.quick_write
         while True:
             # Read up to scwidth pixels into the buffer, method returns the number of pixels written
             n = int(read_pixels(True, lbuffer, scwidth, 0))
@@ -248,10 +245,10 @@ class ST7789(object):
             if n < scwidth:
                 if n > 0:
                     n <<= 1         # Number of gotten pixels x2 to get number of gotten bytes
-                    quick_write(lbuffer[:n])
+                    write_data(lbuffer[:n])
                 break
             else:
-                quick_write(lbuffer)
+                write_data(lbuffer)
         self.quick_end()
 
 
