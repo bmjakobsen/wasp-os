@@ -470,8 +470,8 @@ class MonoImageStream():
 
             color:int = palette[1] if cbyte&bitselect else palette[0]
             if read:
-                buf2[offset] = color&0xFF
-                buf2[offset+1] = (color>>8)&0xFF
+                buf2[offset] = (color>>8)&0xFF
+                buf2[offset+1] = color&0xFF
             offset += 2
 
 
@@ -587,8 +587,8 @@ class MonoRleImageStream():
             rlen -= 1
             remaining -= 1
             if read:
-                buf2[offset] = color_0
-                buf2[offset+1] = color_1
+                buf2[offset] = color_1
+                buf2[offset+1] = color_0
             offset += 2
 
 
@@ -736,8 +736,8 @@ class Rle2ImageStream():
                 color_1 = (palette[color]>>8)&0xFF
                 while rlen > 0 and n2 > 0:
                     if read:
-                        buf2[offset] = color_0
-                        buf2[offset+1] = color_1
+                        buf2[offset] = color_1
+                        buf2[offset+1] = color_0
                     offset += 2
                     rlen -= 1
                     n2 -= 1

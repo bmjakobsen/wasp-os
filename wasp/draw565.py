@@ -98,7 +98,7 @@ class Draw565(object):
         stream._set_color(1, fg)
         self.wg.blit(stream, x, y)
 
-    def blit(self, image, x, y, fg=0xffff):
+    def blit(self, image, x, y, fg=0xffff, c1=0x4a69, c2=0x7bef):
         """Decode and draw an encoded image.
 
         :param image: Image data in either 1-bit RLE or 2-bit RLE formats. The
@@ -114,6 +114,8 @@ class Draw565(object):
             image_data = image[3:]
             stream = self._rle2_stream
             stream._setup(image_data, sx, sy)
+            stream._set_color(1, c1)
+            stream._set_color(2, c2)
             stream._set_color(3, fg)
             self.wg.blit(stream, x, y)
 
