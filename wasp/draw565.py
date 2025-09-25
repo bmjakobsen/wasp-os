@@ -130,6 +130,7 @@ class Draw565(object):
         :param bg:    Background colour, defaults to black
         """
         self._bg = bg
+        self.wg._set_bgcolor(bg)
         self._fg = color
 
     def set_font(self, font):

@@ -1094,6 +1094,9 @@ class WatchGraphics():
         self._font._setup(font)
 
     def _set_screen_context(self, bgcolor:int):
+        self._set_bgcolor(bgcolor)
+
+    def _set_bgcolor(self, bgcolor:int):
         self.bgcolor = bgcolor
         self._set_component_context(0, 0, self.display.spec.width, self.display.spec.height, 0)
 
@@ -1423,12 +1426,12 @@ class WatchGraphics():
             cw:int = int(cpx.width)
             ch:int = int(cpx.height)
             if x+cw <= 0:
-                x += cw + 1
+                x += cw
                 continue
             if x >= window_width:
                 break
             self.blit(cpx, x, y)
-            x += cw + 1
+            x += cw
 
     def draw_string_a(self, color:int, s:str, x:int, y:int, align:int):
         (rw, rh) = self.string_bounding_box(s)

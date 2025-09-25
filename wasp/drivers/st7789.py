@@ -232,7 +232,7 @@ class ST7789(object):
         lbuffer = self.linebuffer
         scwidth:int = int(self.width)
 
-        print("BLIT:  X:"+str(x)+", Y:"+str(y)+", W:"+str(image.width)+", H:"+str(image.height)+"                    "+image.info())
+        #print("BLIT:  X:"+str(x)+", Y:"+str(y)+", W:"+str(image.width)+", H:"+str(image.height)+"                    "+image.info())
         self.set_window(x, y, image.width, image.height)
 
 
