@@ -224,7 +224,7 @@ class Draw565(object):
                 font._set_ch(ch)
                 h = font.height
                 w = font.width
-                l += w + 1
+                l += w
                 if l > width:
                     if end <= start:
                         end = i
