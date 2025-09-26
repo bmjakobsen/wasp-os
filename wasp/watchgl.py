@@ -1168,13 +1168,11 @@ class WatchGraphics():
             croppedy:VerticalCropStream = self._crop_v_stream
             croppedy._setup(image, skip_lines, height)
             image = croppedy
-            y += skip_lines
 
         if reduce_by_cols > 0:
             croppedx:HorizontalCropStream = self._crop_h_stream
             croppedx._setup(image, skip_cols, width)
             image = croppedx
-            x += skip_cols
 
         self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]+y)
         image.reset()
