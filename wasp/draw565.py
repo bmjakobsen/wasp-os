@@ -63,7 +63,7 @@ class Draw565(object):
         Default colours are white-on-block (white foreground, black
         background) and the default font is 24pt Sans Serif."""
         self.set_color(0xffff)
-        self._wgl.set_font(fonts.sans24)
+        self.set_font(fonts.sans24)
 
     def fill(self, bg=None, x=0, y=0, w=None, h=None):
         """Draw a solid colour rectangle.
@@ -143,7 +143,7 @@ class Draw565(object):
 
         :param font:  A font module generated using ``font_to_py.py``.
         """
-        self._wgl.set_font(font)
+        self._wgl._set_font(font)
         self._font = font
 
     def string(self, s, x, y, width=None, right=False):
@@ -178,7 +178,7 @@ class Draw565(object):
             x += leftpad
             rx = x+w
 
-        self._wgl.draw_string(fg, s, x, y)
+        self._wgl.draw_string(fg, bg, s, x, y)
 
         if width:
             self.fill(bg, rx, y, rightpad, h)

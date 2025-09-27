@@ -790,7 +790,7 @@ def _draw_function_sample(com:'Component', wgl:'WatchGraphics'):
     return None
 
 class Component():
-    def __init__(self, x:int, y:int, width:int, height:int, draw_function):
+    def __init__(self, x:int, y:int, width:int, height:int, draw_function, font=None):
         if (x < 0 or x%TILE_SIZE != 0 or
           y < 0 or y%TILE_SIZE != 0 or
           width <= 0 or width%TILE_SIZE != 0 or
@@ -801,6 +801,7 @@ class Component():
         self.y:int = y
         self.width:int = width
         self.height:int = height
+        self._font = font
 
 
         self.draw = draw_function
@@ -839,10 +840,11 @@ class Screen():
 
 
     _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(_16BIT_UNSIGNED_INT, bytearray(_MAX_TILES_HEIGHT*2)))
-    def __init__(self, bgcolor:int, wgl:'WatchGraphics', components:list['Component']):
+    def __init__(self, bgcolor:int, wgl:'WatchGraphics', components:list['Component'], font=fonts.sans24):
         if len(components) > 127:
             raise Exception("Too many components")
         self.bgcolor:int = bgcolor
+        self._font = font
 
         self._wgl = wgl
         display_spec = wgl.display.spec
@@ -902,6 +904,8 @@ class Screen():
             c._screen = self
             c._cid = cid
 
+            if c._font is None:
+                c._font = font
             ncomponents.append(c)
             cid = cid+1
 
@@ -982,7 +986,7 @@ class Screen():
                     continue
                 cid = id_block_off+id_sub
                 com = self.components[cid]
-                set_com_context(com.x, com.y, com.width, com.height, 0)
+                set_com_context(com._font, com.x, com.y, com.width, com.height, 0)
                 com_draw = com.draw
                 com_draw(com, wgl)
                 com.dirty = builtin_false
@@ -1000,7 +1004,7 @@ class Screen():
             update_array[n2] = 0
         builtin_false = builtins.bool(False)
         for com in self.components:
-            set_com_context(com.x, com.y, com.width, com.height, 0)
+            set_com_context(com._font, com.x, com.y, com.width, com.height, 0)
             com_draw = com.draw
             com_draw(com, wgl)
             com.dirty = builtin_false
@@ -1057,8 +1061,6 @@ class WatchGraphics():
         self._font:WaspFontStream = WaspFontStream(display.spec.color_format, fonts.sans24)
 
         self.bgcolor:int = _DEFAULT_BGCOLOR
-        self._text_bgcolor:int = _DEFAULT_BGCOLOR
-        self._text_bgcolor_modified:bool = True
 
         self._screen = None
 
@@ -1088,35 +1090,29 @@ class WatchGraphics():
         if gc_collect:
             _gc_collect()
 
-    def set_font(self, font):
+    def _set_font(self, font):
         self._font._set_font(font)
 
-    def _set_screen_context(self, bgcolor:int):
-        self.bgcolor = bgcolor
-        self._set_component_context(0, 0, self.display.spec.width, self.display.spec.height, 0)
-
-    def _set_bgcolor(self, bgcolor:int):
-        self.bgcolor = bgcolor
-        if self._text_bgcolor != bgcolor or self._text_bgcolor_modified:
-            self._text_bgcolor = bgcolor
-            self._text_bgcolor_modified = False
-            self._font._set_color(0, bgcolor)
-
-    def _set_component_context(self, x:int, y:int, width:int, height:int, shift_y:int):
+    def _set_window(self, x:int, y:int, width:int, height:int, shift_y:int):
         self.width = width
         self.height = height
-        bgcolor:int = self.bgcolor
-        if self._text_bgcolor != bgcolor or self._text_bgcolor_modified:
-            self._text_bgcolor = bgcolor
-            self._text_bgcolor_modified = False
-            self._font._set_color(0, bgcolor)
-
-        # Setup window info
         self._window_info[_WGWI_WIDTH] = self.width
         self._window_info[_WGWI_HEIGHT] = self.height
         self._window_info[_WGWI_XPOS] = x
         self._window_info[_WGWI_YPOS] = y
         self._window_info[_WGWI_YSHIFT] = shift_y
+
+    def _set_bgcolor(self, bgcolor:int):
+        self.bgcolor = bgcolor
+
+    def _set_screen_context(self, bgcolor:int):
+        self._set_bgcolor(bgcolor)
+        self._set_window(0, 0, self.display.spec.width, self.display.spec.height, 0)
+
+    def _set_component_context(self, font, x:int, y:int, width:int, height:int, shift_y:int):
+        self._font._set_font(font)
+        self._set_window(x, y, width, height, shift_y)
+
 
 
     def _set_screen(self, old:Screen, s:Screen):
@@ -1137,14 +1133,6 @@ class WatchGraphics():
 
 
 
-
-    # Set the background color of text, will be reset to the background color after switching components
-    def set_text_bgcolor(self, bgcolor:int):
-        old_tbgcolor:int = self._text_bgcolor
-        if old_tbgcolor != bgcolor:
-            self._text_bgcolor = bgcolor
-            self._text_bgcolor_modified = True
-            self._font._set_color(0, bgcolor)
 
     # Bit image to the screen at position, will automatically be cropped if it goes out of bounds
     @micropython.viper
@@ -1412,11 +1400,15 @@ class WatchGraphics():
 
     # Draw string to the screen at position, sadly cant be viper as it doesnt
     @micropython.native
-    def draw_string(self, color:int, s:str, x:int, y:int):
+    def draw_string(self, color:int, bgcolor:int, s:str, x:int, y:int):
         window_width:int = self.width
         window_height:int = self.height
         font:WaspFontStream = self._font
+        if bgcolor < 0:
+            bgcolor = self.bgcolor
+        font._set_color(0, bgcolor)
         font._set_color(1, color)
+
         font_height = font._font_height
 
         if y >= window_height:
@@ -1438,16 +1430,16 @@ class WatchGraphics():
             self.blit(font, x, y)
             x += cw
 
-    def draw_string_a(self, color:int, s:str, x:int, y:int, align:int):
+    def draw_string_a(self, color:int, bgcolor:int, s:str, x:int, y:int, align:int):
         (rw, rh) = self.string_bounding_box(s)
         rwidth:int = int(rw)
         if align == ALIGNMENT_CENTER:
             offset:int = rwidth//2
-            self.draw_string(color, s, x-offset, y)
+            self.draw_string(color, bgcolor, s, x-offset, y)
         elif align == ALIGNMENT_LEFT:
-            self.draw_string(color, s, x, y)
+            self.draw_string(color, bgcolor, s, x, y)
         elif align == ALIGNMENT_RIGHT:
-            self.draw_string(color, s, x-rwidth, y)
+            self.draw_string(color, bgcolor, s, x-rwidth, y)
         else:
             raise Exception("Shouldnt Happen")
 
