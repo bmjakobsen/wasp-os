@@ -429,10 +429,12 @@ class WaspFontStream():
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
-    def _set_color(self, n:int, color:int):
-        if n < 0 or n > 1:
-            raise Exception("Invalid Palette Index")
-        self._palette[n] = _convert_color_to_format(self._color_format, color)
+    @micropython.viper
+    def _set_color(self, color:int, bgcolor:int):
+        cf:int = int(self._color_format)
+        fconv = _convert_color_to_format
+        self._palette[0] = fconv(cf, bgcolor)
+        self._palette[1] = fconv(cf, color)
 
     def reset(self):
         # Set State required for reading the image
@@ -843,7 +845,10 @@ class Screen():
     def __init__(self, bgcolor:int, wgl:'WatchGraphics', components:list['Component'], font=fonts.sans24):
         if len(components) > 127:
             raise Exception("Too many components")
-        self.bgcolor:int = bgcolor
+        self.bgcolor:int = bgcolor&0xFF
+
+        if font is None:
+            font = fonts.sans24
         self._font = font
 
         self._wgl = wgl
@@ -1407,8 +1412,7 @@ class WatchGraphics():
         font:WaspFontStream = self._font
         if bgcolor < 0:
             bgcolor = self.bgcolor
-        font._set_color(0, bgcolor)
-        font._set_color(1, color)
+        font._set_color(color, bgcolor)
 
         font_height = font._font_height
 
