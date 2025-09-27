@@ -995,6 +995,8 @@ class Screen():
 
     @micropython.viper
     def _draw_full(self):
+        builtin_false = builtins.bool(False)
+        self._full_draw = builtin_false
         wgl = self._wgl
         update_array:ptr16 = ptr16(self.update_array)
         set_com_context = wgl._set_component_context
@@ -1002,7 +1004,6 @@ class Screen():
         n2:int = 0
         while n2 < 9:
             update_array[n2] = 0
-        builtin_false = builtins.bool(False)
         for com in self.components:
             set_com_context(com._font, com.x, com.y, com.width, com.height, 0)
             com_draw = com.draw
