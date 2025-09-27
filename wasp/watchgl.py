@@ -786,7 +786,7 @@ class WaspRle2ImageStream():
 
 
 # The Draw Function of a component takes a Component as parameter and a WatchGraphics instance
-def _draw_function_sample(com:'Component', wg:'WatchGraphics'):
+def _draw_function_sample(com:'Component', wgl:'WatchGraphics'):
     return None
 
 class Component():
@@ -839,24 +839,28 @@ class Screen():
 
 
     _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(_16BIT_UNSIGNED_INT, bytearray(_MAX_TILES_HEIGHT*2)))
-    def __init__(self, bgcolor:int, wg:'WatchGraphics', components:list['Component']):
+    def __init__(self, bgcolor:int, wgl:'WatchGraphics', components:list['Component']):
         if len(components) > 127:
             raise Exception("Too many components")
         self.bgcolor:int = bgcolor
 
-        self.wg = wg
-        display_spec = wg.display.spec
+        self._wgl = wgl
+        display_spec = wgl.display.spec
 
         self.display_spec:DisplaySpec = display_spec
+        self.display_width:int = display_spec.width
+        self.display_height:int = display_spec.height
+
+        self._full_draw:bool = True
 
 
-        tiled_height:int = display_spec.width//TILE_SIZE
-        tiled_width:int = display_spec.height//TILE_SIZE
+        tiled_height:int = self.display_width//TILE_SIZE
+        tiled_width:int = self.display_height//TILE_SIZE
         self.tiled_height = tiled_height
 
         self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(3*4)))
-        self._screen_info[_SC_WIDTH] = display_spec.width
-        self._screen_info[_SC_HEIGHT] = display_spec.height
+        self._screen_info[_SC_WIDTH] = self.display_width
+        self._screen_info[_SC_HEIGHT] = self.display_height
         self._screen_info[_SC_THEIGHT] = tiled_height
 
         assert(tiled_height <= _MAX_TILES_HEIGHT and tiled_width <= _MAX_TILES_WIDTH)
@@ -935,10 +939,14 @@ class Screen():
 
 
     @micropython.viper
-    def draw_lazy(self):
-        wg = self.wg
+    def draw(self):
+        if self._full_draw:
+            self._draw_full()
+            return
+
+        wgl = self._wgl
         update_array:ptr16 = ptr16(self.update_array)
-        set_com_context = wg._set_component_context
+        set_com_context = wgl._set_component_context
         builtin_false = builtins.bool(False)
 
         # Use Pointers to set value
@@ -976,16 +984,16 @@ class Screen():
                 com = self.components[cid]
                 set_com_context(com.x, com.y, com.width, com.height, 0)
                 com_draw = com.draw
-                com_draw(com, wg)
+                com_draw(com, wgl)
                 com.dirty = builtin_false
         update_array[0] = 0
 
 
     @micropython.viper
-    def draw_full(self):
-        wg = self.wg
+    def _draw_full(self):
+        wgl = self._wgl
         update_array:ptr16 = ptr16(self.update_array)
-        set_com_context = wg._set_component_context
+        set_com_context = wgl._set_component_context
 
         n2:int = 0
         while n2 < 9:
@@ -994,13 +1002,13 @@ class Screen():
         for com in self.components:
             set_com_context(com.x, com.y, com.width, com.height, 0)
             com_draw = com.draw
-            com_draw(com, wg)
+            com_draw(com, wgl)
             com.dirty = builtin_false
 
     """
     @micropython.viper
-    def draw_scroll(self, scroll_direction:int):
-        wg = self.wg
+    def _draw_scroll(self, scroll_direction:int):
+        wgl = self._wgl
         if scroll_direction != DIRECTION_UP and scroll_direction != DIRECTION_DOWN:
             raise Exception("Invalid Direction given")
         window_info:ptr32 = ptr32(self._screen_info)
@@ -1008,9 +1016,21 @@ class Screen():
         tiled_height:int = window_info[_SC_THEIGHT]
     """
 
+    @micropython.viper
+    def _clear_screen(self, bgcolor:int):
+        cbgcolor:int = int(self.bgcolor)
+        wgl = self._wgl
+        fill = wgl._fill_uw
+        # Special Case, new background color differs, so redraw entire screen
+        if bgcolor != cbgcolor:
+            fill(bgcolor, 0, 0, self.display_width, self.display_height)
+            return
+        # Just overdraw individual components
+        for com in self.components:
+            fill(bgcolor, com.x, com.x, com.width, com.height)
 
     def switch_screen(self, ns:'Screen', direction:int):
-        self.wg._set_screen(self, ns)
+        self._wgl._set_screen(self, ns)
 
 
 
@@ -1044,8 +1064,11 @@ class WatchGraphics():
 
         #self.scroll_direction:int = DIRECTION_UP
 
-        self.width:int = self.display.spec.width
-        self.height:int = self.display.spec.height
+        self._display_width:int = self.display.spec.width
+        self._display_height:int = self.display.spec.height
+
+        self.width:int = self._display_width
+        self.height:int = self._display_height
 
         self._window_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(5*4)))
 
@@ -1121,7 +1144,7 @@ class WatchGraphics():
         if old_tbgcolor != bgcolor:
             self._text_bgcolor = bgcolor
             self._text_bgcolor_modified = True
-            self._font.set_bgcolor(bgcolor)
+            self._font._set_color(0, bgcolor)
 
     # Bit image to the screen at position, will automatically be cropped if it goes out of bounds
     @micropython.viper
@@ -1177,6 +1200,11 @@ class WatchGraphics():
         self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]+y)
         image.reset()
 
+
+    # Fill on screen but ignore current window
+    @micropython.viper
+    def _fill_uw(self, color:int, x:int, y:int, width:int, height:int):
+        self.display.wgl_fill(color, x, y, width, height)
 
     # Fill an area on the screen, will automatically be cropped to not leave the specified component
     @micropython.viper

@@ -10,7 +10,7 @@ import fonts.sans24
 import math
 import micropython
 
-from watchgl import WaspRle1ImageStream, WaspRle2ImageStream
+from watchgl import WatchGraphics, WaspRle1ImageStream, WaspRle2ImageStream
 
 from micropython import const
 
@@ -28,7 +28,7 @@ class Draw565(object):
     .. automethod:: __init__
     """
 
-    def __init__(self, wg):
+    def __init__(self, wgl:WatchGraphics):
         """Initialise the library.
 
         Defaults to white-on-black for monochrome drawing operations
@@ -36,11 +36,15 @@ class Draw565(object):
         """
 
 
+        # _wgl_bak always contains a reference to the WatchGraphics Object, while _wgl get set to none if an app is run that uses WatchGL directly
+        self._wgl:WatchGraphics = wgl
+        self._wgl_bak:WatchGraphics = wgl
 
-        self.wg = wg
+        self._display_width:int = wgl.display.spec.width
+        self._display_height:int = wgl.display.spec.height
 
-        self._rle_stream = WaspRle1ImageStream(wg.display.spec.color_format, memoryview(b'\x08'), 8, 1)
-        self._rle2_stream = WaspRle2ImageStream(wg.display.spec.color_format, memoryview(b'\x08'), 8, 1)
+        self._rle_stream = WaspRle1ImageStream(wgl.display.spec.color_format, memoryview(b'\x08'), 8, 1)
+        self._rle2_stream = WaspRle2ImageStream(wgl.display.spec.color_format, memoryview(b'\x08'), 8, 1)
 
         self._rle_stream._set_color(0, 0)
         self._rle_stream._set_color(1, 0xFFFF)
@@ -51,6 +55,7 @@ class Draw565(object):
         self._rle2_stream._set_color(3, 0xFFFF)
 
         self.reset()
+        self._wgl = None
 
     def reset(self):
         """Restore the default colours and font.
@@ -58,7 +63,7 @@ class Draw565(object):
         Default colours are white-on-block (white foreground, black
         background) and the default font is 24pt Sans Serif."""
         self.set_color(0xffff)
-        self.wg.set_font(fonts.sans24)
+        self._wgl.set_font(fonts.sans24)
 
     def fill(self, bg=None, x=0, y=0, w=None, h=None):
         """Draw a solid colour rectangle.
@@ -77,15 +82,15 @@ class Draw565(object):
         if bg is None:
             bg = self._bg
         if w is None:
-            w = self.wg.display.spec.width - x
+            w = self._display_width - x
         if h is None:
-            h = self.wg.display.spec.height - y
+            h = self._display_height - y
 
         remaining = w * h
         if remaining == 0:
           return
 
-        self.wg.fill(bg, x, y, w, h)
+        self._wgl.fill(bg, x, y, w, h)
 
 
 
@@ -96,7 +101,7 @@ class Draw565(object):
         stream._setup(image_data, sx, sy)
         stream._set_color(0, bg)
         stream._set_color(1, fg)
-        self.wg.blit(stream, x, y)
+        self._wgl.blit(stream, x, y)
 
     def blit(self, image, x, y, fg=0xffff, c1=0x4a69, c2=0x7bef):
         """Decode and draw an encoded image.
@@ -117,7 +122,7 @@ class Draw565(object):
             stream._set_color(1, c1)
             stream._set_color(2, c2)
             stream._set_color(3, fg)
-            self.wg.blit(stream, x, y)
+            self._wgl.blit(stream, x, y)
 
     def set_color(self, color, bg=0):
         """Set the foreground and background colours.
@@ -130,7 +135,7 @@ class Draw565(object):
         :param bg:    Background colour, defaults to black
         """
         self._bg = bg
-        self.wg._set_bgcolor(bg)
+        self._wgl._set_bgcolor(bg)
         self._fg = color
 
     def set_font(self, font):
@@ -138,7 +143,7 @@ class Draw565(object):
 
         :param font:  A font module generated using ``font_to_py.py``.
         """
-        self.wg.set_font(font)
+        self._wgl.set_font(font)
         self._font = font
 
     def string(self, s, x, y, width=None, right=False):
@@ -162,7 +167,7 @@ class Draw565(object):
 
         rx = 0
         if width:
-            (w, h) = self.wg.string_bounding_box(s)
+            (w, h) = self._wgl.string_bounding_box(s)
             if right:
                 leftpad = width - w
                 rightpad = 0
@@ -173,7 +178,7 @@ class Draw565(object):
             x += leftpad
             rx = x+w
 
-        self.wg.draw_string(fg, s, x, y)
+        self._wgl.draw_string(fg, s, x, y)
 
         if width:
             self.fill(bg, rx, y, rightpad, h)
@@ -186,7 +191,7 @@ class Draw565(object):
         """
         if s is None:
             s = "   "
-        return self.wg.string_bounding_box(s)
+        return self._wgl.string_bounding_box(s)
 
     def wrap(self, s, width):
         """Chunk a string so it can rendered within a specified width.
@@ -207,7 +212,7 @@ class Draw565(object):
         :param width: Width to wrap the text into
         :returns:     List of chunk boundaries
         """
-        font = self.wg._font
+        font = self._wgl._font
         max = len(s)
         chunks = [ 0, ]
         end = 0
@@ -261,7 +266,7 @@ class Draw565(object):
         """
         if color is None:
             color = self._fg
-        self.wg.draw_line(color, width, x0, y0, x1, y1)
+        self._wgl.draw_line(color, width, x0, y0, x1, y1)
 
 
     def polar(self, x, y, theta, r0, r1, width=1, color=None):
@@ -290,7 +295,7 @@ class Draw565(object):
 
         if color is None:
             color = self._fg
-        self.wg.draw_line_polar(color, width, x, y, theta, r0, r1)
+        self._wgl.draw_line_polar(color, width, x, y, theta, r0, r1)
 
     def lighten(self, color, step=1):
         """Get a lighter shade from the same palette.
