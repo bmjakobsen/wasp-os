@@ -1140,6 +1140,9 @@ class WatchGraphics():
 
 
 
+    def create_screen(self, bgcolor:int, components:list['Component'], font=fonts.sans24):
+        return Screen(bgcolor, self, components, font=font)
+
     # Bit image to the screen at position, will automatically be cropped if it goes out of bounds
     @micropython.viper
     def blit(self, image, x:int, y:int):
