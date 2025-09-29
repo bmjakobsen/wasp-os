@@ -207,10 +207,6 @@ class DisplayProtocol(Protocol):
 
     def wgl_fill(self, color:int, x:int, y:int, width:int, height:int):
         pass
-    # Removed as it is probably not necessary, and that the buffers needed to use would cause more problems
-    #def wgl_fill_seq(self, color:int, x:int, y:int, data:memoryview, n:int):
-    #    pass
-
     # The Function
     def wgl_blit(self, image:ImageStream, x:int, y:int):
         pass
@@ -801,6 +797,7 @@ class Component():
         self.y:int = y
         self.width:int = width
         self.height:int = height
+        self.dirty = False
         self._font = font
 
 
@@ -822,8 +819,8 @@ class Component():
             self.dirty = True
 
 
-_SC_WIDTH = const(0)            # Height of Screen
-_SC_HEIGHT = const(1)           # Width of Screen
+_SC_WIDTH = const(0)            # Width of Screen
+_SC_HEIGHT = const(1)           # Height of Screen
 _SC_THEIGHT = const(2)          # Height of screen in Components
 # Horizontal offset to be added when setting the component context. This is needed so that the screen can be centered even if the width cant be divided by 16
 _SC_XOFF = const(3)
@@ -983,7 +980,7 @@ class Screen():
         set_com_context = wgl._set_component_context
         builtin_false = builtins.bool(False)
 
-        scinfo:ptr32 = ptr32(self._screen_info)
+        sc_info:ptr32 = ptr32(self._screen_info)
         x_offset:int = sc_info[_SC_XOFF]
 
 
@@ -1035,7 +1032,7 @@ class Screen():
         update_array:ptr16 = ptr16(self.update_array)
         set_com_context = wgl._set_component_context
 
-        scinfo:ptr32 = ptr32(self._screen_info)
+        sc_info:ptr32 = ptr32(self._screen_info)
         x_offset:int = sc_info[_SC_XOFF]
 
 
