@@ -66,7 +66,7 @@ class ST7789(object):
             self.write_cmd(cmd[0])
             if cmd[1]:
                 self.write_data(cmd[1])
-        self.fill(0)
+        self.wgl_fill(0, 0, 0, self.width, self.height)
         self.write_cmd(_DISPON)
 
         # From the point we sent the SLPOUT there must be a
@@ -142,52 +142,6 @@ class ST7789(object):
         write_data(window)
 
         write_cmd(_RAMWR)
-
-    def rawblit(self, buf, x, y, width, height):
-        """Blit raw pixels to the display.
-
-        :param buf: Pixel buffer
-        :param x:  X coordinate of the left-most pixels of the rectangle
-        :param y:  Y coordinate of the top-most pixels of the rectangle
-        :param w:  Width of the rectangle, defaults to None (which means select
-                   the right-most pixel of the display)
-        :param h:  Height of the rectangle, defaults to None (which means select
-                   the bottom-most pixel of the display)
-        """
-        self.set_window(x, y, width, height)
-        self.write_data(buf)
-
-    def fill(self, bg, x=0, y=0, w=None, h=None):
-        """Draw a solid colour rectangle.
-
-        If no arguments a provided the whole display will be filled with
-        the background colour (typically black).
-
-        :param bg: Background colour (in RGB565 format)
-        :param x:  X coordinate of the left-most pixels of the rectangle
-        :param y:  Y coordinate of the top-most pixels of the rectangle
-        :param w:  Width of the rectangle, defaults to None (which means select
-                   the right-most pixel of the display)
-        :param h:  Height of the rectangle, defaults to None (which means select
-                   the bottom-most pixel of the display)
-        """
-        if not w:
-            w = self.width - x
-        if not h:
-            h = self.height - y
-        self.set_window(x, y, w, h)
-
-        # Populate the line buffer
-        buf = self.linebuffer[0:2*w]
-        for xi in range(0, 2*w, 2):
-            buf[xi] = bg >> 8
-            buf[xi+1] = bg & 0xff
-
-        write_data = self.write_data
-        # Do the fill
-        for yi in range(h):
-            write_data(buf)
-
 
 
     @micropython.viper
