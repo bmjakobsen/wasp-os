@@ -14,7 +14,7 @@ import builtins
 
 
 
-
+import time
 try:
     from micropython import const       # type: ignore[import-not-found]
     import micropython                  # type: ignore[import-not-found]
@@ -25,6 +25,13 @@ except ImportError:
     ptr8 = memoryview
     ptr16 = memoryview
     ptr32 = memoryview
+
+    def _sleep_ms(ms):
+        time.sleep(ms / 1000)
+    time.sleep_ms = _sleep_ms                                   # type: ignore[attr-defined]
+    time.ticks_ms = lambda : int(time.time() * 1000)            # type: ignore[attr-defined]
+    time.ticks_us = lambda : int(time.time() * 1000 * 1000)     # type: ignore[attr-defined]
+    time.ticks_diff = lambda x, y : x-y                         # type: ignore[attr-defined]
 
 
 try:
@@ -848,6 +855,7 @@ _SC_YOFFSET = const(4)
 
 _SC_YMAP_NULL_ENTRY = const(_MAX_TILES_HEIGHT*2)
 
+_SC_MAX_AHEAD = const(32)
 class Screen():
     _8BIT_UNSIGNED_INT = _array_get_int_type(8, unsigned=True)
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
@@ -1051,28 +1059,107 @@ class Screen():
         Y_OFFSET:int = sc_info[_SC_YOFFSET]
 
 
-        n2:int = 0
-        while n2 < 9:
-            update_array[n2] = 0
+        for n in range(0, 9):
+            update_array[n] = 0
         for com in self.components:
             set_com_context(com._font, X_OFFSET+int(com.x), Y_OFFSET+int(com.y), com.width, com.height, 0)
             com_draw = com.draw
             com_draw(com, com._state, wgl)
             com.dirty = builtin_false
 
-    """
     @micropython.viper
     def _draw_scroll(self, scroll_direction:int):
+        builtin_false = builtins.bool(False)
         wgl = self._wgl
+        fill = wgl._fill_uw
+        sleep_ms = time.sleep_ms            # type: ignore[attr-defined]
+        ticks_ms = time.ticks_ms            # type: ignore[attr-defined]
+        ticks_add = time.ticks_add          # type: ignore[attr-defined]
+        ticks_diff = time.ticks_diff        # type: ignore[attr-defined]
+
+
         if scroll_direction != DIRECTION_UP and scroll_direction != DIRECTION_DOWN:
             raise Exception("Invalid Direction given")
+
+        if scroll_direction != DIRECTION_UP:
+            raise Exception("Currently Only scrolling up implemented")
+
+        vscroll = wgl.display.wgl_vscroll
         sc_info:ptr32 = ptr32(self._screen_info)
         WIDTH:int = sc_info[_SC_WIDTH]
         HEIGHT:int = sc_info[_SC_HEIGHT]
         TILED_HEIGHT:int = sc_info[_SC_THEIGHT]
         X_OFFSET:int = sc_info[_SC_XOFFSET]
         Y_OFFSET:int = sc_info[_SC_YOFFSET]
-    """
+        bgcolor:int = self.bgcolor
+
+        update_array:ptr16 = ptr16(self.update_array)
+        set_com_context = wgl._set_component_context
+        
+        for n in range(0, 9):
+            update_array[n] = 0
+
+        scroll_remaining:int = HEIGHT
+        current_draw_line = HEIGHT
+
+        ymap:ptr8 = ptr8(self.com_map_y)
+
+        TICKS_BETWEEN_SCROLL = 3
+        scroll_next_pixel = ticks_add(ticks_ms(), TICKS_BETWEEN_SCROLL)
+        
+
+        ahead:int = 0                   # Number of lines drawing is ahead of scrolling
+        LAST_ROW:int = TILED_HEIGHT-1
+        ypos:int = -16
+        for trow in range(0, TILED_HEIGHT):
+            ypos += TILE_SIZE
+            stripe_size:int = TILE_SIZE
+            if trow == 0 or trow == LAST_ROW:
+                stripe_size += Y_OFFSET
+
+            # Scroll if there isnt enough buffer space ahead
+            while ahead+stripe_size > _SC_MAX_AHEAD:
+                if ticks_diff(scroll_next_pixel, ticks_ms()) > 0:
+                    sleep_ms(1)
+                    continue
+                scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
+                current_draw_line -= 1
+                scroll_remaining -= 1
+                ahead -= 1
+                vscroll(-1)
+
+            fill(bgcolor, 0, current_draw_line, WIDTH, stripe_size)
+            if trow == 0:
+                current_draw_line += Y_OFFSET
+
+            trow_x_2:int = trow<<1
+            row_offset = ymap[trow_x_2]<<8+ymap[trow_x_2+1]
+            while ymap[row_offset] != 0:
+                com_id:int = ymap[row_offset]
+                row_offset += 1
+                com = self.components[com_id]
+                com_draw = com.draw
+                yshift:int = int(com.y)-ypos
+                set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line, com.width, TILE_SIZE, yshift)
+                com_draw(com, com._state, wgl)
+                com.dirty = builtin_false
+                while ahead > 0 and ticks_diff(scroll_next_pixel, ticks_ms()) < 0:
+                    scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
+                    current_draw_line -= 1
+                    scroll_remaining -= 1
+                    ahead -= 1
+                    vscroll(-1)
+            current_draw_line += TILE_SIZE
+            ahead += stripe_size
+        while ahead > 0 and scroll_remaining > 0:
+            if ticks_diff(scroll_next_pixel, ticks_ms()) < 0:
+                scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
+                current_draw_line -= 1
+                scroll_remaining -= 1
+                ahead -= 1
+                vscroll(-1)
+            else:
+                sleep_ms(1)
 
     @micropython.viper
     def _clear_screen(self, bgcolor:int):
