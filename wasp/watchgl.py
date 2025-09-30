@@ -38,11 +38,6 @@ except (ImportError, AttributeError):
 
 TILE_SIZE = const(16)                       # Size of tiles on the screen, all components must be aligned to tiles
 
-_TILES_PER_VSCROLL_STRIPE = const(2)
-_VSCROLL_STRIPE_SIZE = const(TILE_SIZE*_TILES_PER_VSCROLL_STRIPE)
-_VSCROLL_STRIPE_SIZE2 = const(_VSCROLL_STRIPE_SIZE*2)
-
-
 _MAX_TILES_WIDTH = const(16)
 _MAX_TILES_HEIGHT = const(20)
 
@@ -149,7 +144,6 @@ class ImageStream(Protocol):
     def info(self) -> str:
         return ""
 
-
 _DUMMY_BUFFER:memoryview = memoryview(bytearray(16))
 @micropython.viper
 def _skip_pixels(s, n:int):
@@ -159,7 +153,7 @@ def _skip_pixels(s, n:int):
 
 
 class DisplaySpec():
-    def __init__(self, width:int, height:int, color_format:int, scroll_directions:frozenset[int]=frozenset([DIRECTION_UP, DIRECTION_DOWN]), vscroll_stripe_size:int=_VSCROLL_STRIPE_SIZE2):
+    def __init__(self, width:int, height:int, color_format:int, scroll_directions:frozenset[int]=frozenset([]), vscroll_stripe_size:int=0):
         self.width:int = width
         self.height:int = height
         self.color_format:int = color_format
@@ -175,14 +169,25 @@ class DisplaySpec():
             raise Exception("The screen is too wide to handle, currently not more than "+str(_MAX_SCREEN_WIDTH)+" is allowed")
         if height > _MAX_SCREEN_WIDTH:
             raise Exception("The screen is too wide to handle, currently not more than "+str(_MAX_SCREEN_HEIGHT)+" is allowed")
+        if width%2 != 0 or height%2 != 0:
+            raise Exception("Screen Height and Width must be divisible by 2")
 
-        self.tiled_height:int = height//TILE_SIZE
+
         self.tiled_width:int = width//TILE_SIZE
+        self.tiled_height:int = height//TILE_SIZE
 
+        self.x_offset:int = (width-(self.tiled_width*TILE_SIZE))//2
+        self.y_offset:int = (height-(self.tiled_height*TILE_SIZE))//2
 
-        if vscroll_stripe_size < 0:
+        if self.x_offset < 0 or self.y_offset < 0:
+            raise Exception("Shouldnt Happen")
+
+        vscroll_stripe_size -= self.y_offset
+        vscroll_stripe_tsize:int = vscroll_stripe_size//TILE_SIZE
+        vscroll_stripe_size = vscroll_stripe_tsize*TILE_SIZE
+        if vscroll_stripe_tsize < 0:
             raise Exception("vscroll_stripe_size must not be negative")
-        if vscroll_stripe_size < _VSCROLL_STRIPE_SIZE2 or True:         # Currently scrolling is deactivated
+        if vscroll_stripe_tsize < 2 or True:         # Currently scrolling is deactivated
             if DIRECTION_UP in scroll_directions or DIRECTION_DOWN in scroll_directions:
                 raise Exception("Vertical Scrolling area is too small to implement scrolling, must specify allowed scrolling directions to not include UP or DOWN")
 
@@ -194,6 +199,8 @@ class DisplaySpec():
                 continue
             raise Exception("Unsupported Scroll Direction used")
 
+        self.vscroll_stripe_size = vscroll_stripe_size
+        self.vscroll_stripe_tsize = vscroll_stripe_tsize
         self.scroll_directions:frozenset[int] = scroll_directions
 
 
@@ -786,7 +793,7 @@ def _draw_function_sample(com:'Component', state:dict[str, object], wgl:'WatchGr
     return None
 
 class Component():
-    def __init__(self, x:int, y:int, width:int, height:int, draw_function, font=None):
+    def __init__(self, x:int, y:int, width:int, height:int, draw_function, state:dict[str, object]={}, font=None):
         if (x < 0 or x%TILE_SIZE != 0 or
           y < 0 or y%TILE_SIZE != 0 or
           width <= 0 or width%TILE_SIZE != 0 or
@@ -803,29 +810,37 @@ class Component():
 
         self.draw = draw_function
         self._state:dict[str, object] = {}
+        # Only assign value of state to _state if it is not the default value, else assign to empty dict
+        # This is because, if the default value where assigned, the updates to the dict would also happen
+        # In other components
+        if len(state) > 0:
+            self._state = state
         self._screen:"Screen" = None        # type: ignore[assignment]
         self._cid:int = 0
-    def init_vars(self, state:dict[str, object]):
-        if self._screen is not None:
-            raise Exception("Cant init state if component is already part of a screen")
+    # Returns None, if undefined
     def get_var(self, k:str) -> object:
+        state = self._state
+        if k not in state:
+            return None
         return self._state[k]
     def set_var(self, k:str, v:object):
-        if k in self._state and self._state[k] == v:
-            return
-        self._state[k] = v
-        if not self.dirty:
-            self._screen.notify_component_update(self._cid)
+        state = self._state
+        # Only Notify Screen of Update, if the component is not dirty, and the component is part of a screen
+        # And if the component changes, either key is not in state, or value is different
+        # This also sets the dirty flag
+        screen = self._screen
+        if not self.dirty and screen is not None and (k not in state or state[k] != v):
+            screen.notify_component_update(self._cid)
             self.dirty = True
+        state[k] = v
 
 
 _SC_WIDTH = const(0)            # Width of Screen
 _SC_HEIGHT = const(1)           # Height of Screen
 _SC_THEIGHT = const(2)          # Height of screen in Components
-# Horizontal offset to be added when setting the component context. This is needed so that the screen can be centered even if the width cant be divided by 16
-_SC_XOFF = const(3)
-# The height of the chin, basically the area that cant be rendered to because the height cant be divided by 16
-_SC_CHIN_HEIGHT = const(4)
+# Horizontal and Vertical Offset to usable screen inside of real screen
+_SC_XOFFSET = const(3)
+_SC_YOFFSET = const(4)
 
 # This means that the component Grid is centered horizontally, but not vertically.
 
@@ -860,25 +875,20 @@ class Screen():
 
         self._full_draw:bool = True
 
-
-        tiled_height:int = self.display_width//TILE_SIZE
-        tiled_width:int = self.display_height//TILE_SIZE
+        tiled_height:int = display_spec.tiled_height
+        tiled_width:int = display_spec.tiled_width
         self.tiled_height:int = tiled_height
 
-        chin_height:int = self.display_height-(tiled_height*TILE_SIZE)
-        x_offset:int = (self.display_width-(tiled_width*TILE_SIZE))//2
+        x_offset:int = display_spec.x_offset
+        y_offset:int = display_spec.y_offset
 
-        assert(chin_height >= 0)
-        assert(x_offset >= 0)
 
         self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(5*4)))
         self._screen_info[_SC_WIDTH] = self.display_width
         self._screen_info[_SC_HEIGHT] = self.display_height
         self._screen_info[_SC_THEIGHT] = tiled_height
-        self._screen_info[_SC_XOFF] = x_offset
-        self._screen_info[_SC_CHIN_HEIGHT] = chin_height
-
-        assert(tiled_height <= _MAX_TILES_HEIGHT and tiled_width <= _MAX_TILES_WIDTH)
+        self._screen_info[_SC_XOFFSET] = x_offset
+        self._screen_info[_SC_YOFFSET] = y_offset
 
 
         # The bitfield is used to detect overlaps in components
@@ -914,11 +924,14 @@ class Screen():
                     bitfield[cyp] |= 1<<i
 
             # Register this screen to the component so that it nows its id and has a reference to the screen
+            if not c._screen is None:
+                raise Exception("Component given to screen is already part of a screen")
             c._screen = self
             c._cid = cid
 
             if c._font is None:
                 c._font = font
+            c.dirty = False
             ncomponents.append(c)
             cid = cid+1
 
@@ -981,7 +994,8 @@ class Screen():
         builtin_false = builtins.bool(False)
 
         sc_info:ptr32 = ptr32(self._screen_info)
-        x_offset:int = sc_info[_SC_XOFF]
+        X_OFFSET:int = sc_info[_SC_XOFFSET]
+        Y_OFFSET:int = sc_info[_SC_YOFFSET]
 
 
         # Use Pointers to set value
@@ -1017,9 +1031,9 @@ class Screen():
                     continue
                 cid = id_block_off+id_sub
                 com = self.components[cid]
-                set_com_context(com._font, x_offset+com.x, com.y, com.width, com.height, 0)
+                set_com_context(com._font, X_OFFSET+int(com.x), Y_OFFSET+int(com.y), com.width, com.height, 0)
                 com_draw = com.draw
-                com_draw(com, wgl)
+                com_draw(com, com._state, wgl)
                 com.dirty = builtin_false
         update_array[0] = 0
 
@@ -1033,16 +1047,17 @@ class Screen():
         set_com_context = wgl._set_component_context
 
         sc_info:ptr32 = ptr32(self._screen_info)
-        x_offset:int = sc_info[_SC_XOFF]
+        X_OFFSET:int = sc_info[_SC_XOFFSET]
+        Y_OFFSET:int = sc_info[_SC_YOFFSET]
 
 
         n2:int = 0
         while n2 < 9:
             update_array[n2] = 0
         for com in self.components:
-            set_com_context(com._font, x_offset+com.x, com.y, com.width, com.height, 0)
+            set_com_context(com._font, X_OFFSET+int(com.x), Y_OFFSET+int(com.y), com.width, com.height, 0)
             com_draw = com.draw
-            com_draw(com, wgl)
+            com_draw(com, com._state, wgl)
             com.dirty = builtin_false
 
     """
@@ -1051,9 +1066,12 @@ class Screen():
         wgl = self._wgl
         if scroll_direction != DIRECTION_UP and scroll_direction != DIRECTION_DOWN:
             raise Exception("Invalid Direction given")
-        window_info:ptr32 = ptr32(self._screen_info)
-        height:int = window_info[_SC_HEIGHT]
-        tiled_height:int = window_info[_SC_THEIGHT]
+        sc_info:ptr32 = ptr32(self._screen_info)
+        WIDTH:int = sc_info[_SC_WIDTH]
+        HEIGHT:int = sc_info[_SC_HEIGHT]
+        TILED_HEIGHT:int = sc_info[_SC_THEIGHT]
+        X_OFFSET:int = sc_info[_SC_XOFFSET]
+        Y_OFFSET:int = sc_info[_SC_YOFFSET]
     """
 
     @micropython.viper
@@ -1143,7 +1161,7 @@ class WatchGraphics():
 
     def _set_screen_context(self, bgcolor:int):
         self._set_bgcolor(bgcolor)
-        self._set_window(0, 0, self.display.spec.width, self.display.spec.height, 0)
+        self._set_window(0, 0, self._display_width, self._display_height, 0)
 
     def _set_component_context(self, font, x:int, y:int, width:int, height:int, shift_y:int):
         self._font._set_font(font)
