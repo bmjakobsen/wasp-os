@@ -32,6 +32,9 @@ _RAMWR              = const(0x2c)
 _COLMOD             = const(0x3a)
 _MADCTL             = const(0x36)
 
+_VSCRDEF            = const(0x33)
+_VSCSAD             = const(0x37)
+
 _MAX_BUFFER_Y = const(320)
 
 class ST7789(object):
@@ -49,7 +52,18 @@ class ST7789(object):
         self.width = width
         self.height = height
         self.linebuffer = memoryview(bytearray(2 * width))
-        self.window = memoryview(bytearray(4))
+        command_buffer = memoryview(bytearray(4+6+2))
+        self.window = command_buffer[0:4]
+        self.vscsad = command_buffer[4:6]
+        self.vscrdef = command_buffer[6:12]
+        
+        self.vscrdef[0] = 0
+        self.vscrdef[1] = 0
+        self.vscrdef[2] = (_MAX_BUFFER_Y>>8)&0xFF
+        self.vscrdef[3] = _MAX_BUFFER_Y&0xFF
+        self.vscrdef[4] = 0
+        self.vscrdef[5] = 0
+
         self.vsc_line:int = 0
         self.init_display()
 
@@ -60,15 +74,21 @@ class ST7789(object):
         self.write_cmd(_SLPOUT)
         sleep_ms(10)
 
+        self.vscsad[0] = 0
+        self.vscsad[1] = 0
+
+
         for cmd in (
             (_COLMOD,   b'\x05'), # MCU will send 16-bit RGB565
             (_MADCTL,   b'\x00'), # Left to right, top to bottom
             #(_INVOFF,   None), # Results in odd palette
             (_INVON,   None),
             (_NORON,   None),
+            (_VSCRDEF,   self.vscrdef),
+            (_VSCSAD,    self.vscsad)
         ):
             self.write_cmd(cmd[0])
-            if cmd[1]:
+            if not cmd[1] is None:
                 self.write_data(cmd[1])
         self.wgl_fill(0, 0, 0, self.width, self.height)
         self.write_cmd(_DISPON)
@@ -147,6 +167,21 @@ class ST7789(object):
 
         write_cmd(_RAMWR)
 
+
+    def wgl_vscoll(self, pixels:int):
+        vsc_line:int = self.vsc_line
+        vsc_line += pixels
+        while vsc_line < 0:
+            vsc_line += _MAX_BUFFER_Y
+        while vsc_line >= _MAX_BUFFER_Y:
+            vsc_line -= _MAX_BUFFER_Y
+        self.vsc_line = vsc_line
+
+        vscsad = self.vscsad
+        vscsad[0] = (vsc_line>>8)&0xFF
+        vscsad[1] = vsc_line&0xFF
+        self.write_cmd(_VSCSAD)
+        self.write_data(vscsad)
 
     #Temporarily Non-Native
     #@micropython.viper
