@@ -25,13 +25,14 @@ except ImportError:
     ptr8 = memoryview
     ptr16 = memoryview
     ptr32 = memoryview
-
     def _sleep_ms(ms):
         time.sleep(ms / 1000)
     time.sleep_ms = _sleep_ms                                   # type: ignore[attr-defined]
     time.ticks_ms = lambda : int(time.time() * 1000)            # type: ignore[attr-defined]
     time.ticks_us = lambda : int(time.time() * 1000 * 1000)     # type: ignore[attr-defined]
+    time.ticks_add = lambda x, d : (x+d)                        # type: ignore[attr-defined]
     time.ticks_diff = lambda x, y : x-y                         # type: ignore[attr-defined]
+
 
 
 try:
@@ -1108,7 +1109,6 @@ class Screen():
 
         TICKS_BETWEEN_SCROLL = 3
         scroll_next_pixel = ticks_add(ticks_ms(), TICKS_BETWEEN_SCROLL)
-        
 
         ahead:int = 0                   # Number of lines drawing is ahead of scrolling
         LAST_ROW:int = TILED_HEIGHT-1
@@ -1128,18 +1128,18 @@ class Screen():
                 current_draw_line -= 1
                 scroll_remaining -= 1
                 ahead -= 1
-                vscroll(-1)
+                vscroll(1)
 
             fill(bgcolor, 0, current_draw_line, WIDTH, stripe_size)
             if trow == 0:
                 current_draw_line += Y_OFFSET
 
             trow_x_2:int = trow<<1
-            row_offset = ymap[trow_x_2]<<8+ymap[trow_x_2+1]
+            row_offset = (ymap[trow_x_2]<<8)+ymap[trow_x_2+1]
             while ymap[row_offset] != 0:
                 com_id:int = ymap[row_offset]
                 row_offset += 1
-                com = self.components[com_id]
+                com = self.components[com_id-1]
                 com_draw = com.draw
                 yshift:int = int(com.y)-ypos
                 set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line, com.width, TILE_SIZE, yshift)
@@ -1150,16 +1150,14 @@ class Screen():
                     current_draw_line -= 1
                     scroll_remaining -= 1
                     ahead -= 1
-                    vscroll(-1)
+                    vscroll(1)
             current_draw_line += TILE_SIZE
             ahead += stripe_size
-        while ahead > 0 and scroll_remaining > 0:
+        while scroll_remaining > 0:
             if int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
                 scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
-                current_draw_line -= 1
                 scroll_remaining -= 1
-                ahead -= 1
-                vscroll(-1)
+                vscroll(1)
             else:
                 sleep_ms(1)
 
@@ -1181,6 +1179,15 @@ class Screen():
 
 
 
+def FillComponent(x:int, y:int, width:int, height:int, color:int):
+    def _draw_function(com, state, wgl):
+        wgl.fill(color, 0, 0, width, height)
+    return Component(x, y, width, height, _draw_function)
+
+def TextComponent(x:int, y:int, width:int, height:int, s:str, color:int, bgcolor:int):
+    def _draw_function(com, state, wgl):
+        wgl.draw_string(color, bgcolor, s, 0, 0)
+    return Component(x, y, width, height, _draw_function)
 
 
 
@@ -1221,17 +1228,28 @@ class WatchGraphics():
         self._window_info[_WGWI_WIDTH] = self.width
         self._window_info[_WGWI_HEIGHT] = self.height
         self._window_info[_WGWI_XPOS] = 0
-        self._window_info[_WGWI_YPOS] = 0
-        self._window_info[_WGWI_YSHIFT] = 0
+        self._window_info[_WGWI_YPOS] = 0+ARROFF
+        self._window_info[_WGWI_YSHIFT] = 0+ARROFF
 
 
         # Init Crop Streamers used for Blitting images that dont fit in their components
         self._crop_v_stream:VerticalCropStream = VerticalCropStream(DummyImageStream(1, 1), 0, 1)
         self._crop_h_stream:HorizontalCropStream = HorizontalCropStream(DummyImageStream(1, 1), 0, 1)
 
+
+        colors = [0xf800, 0xfba0, 0xffc0, 0xff20,   0xbfe0, 0x67e0, 0x07e2, 0x07f2,   0x07fd, 0x055f, 0x033f, 0x0ff,   0x281f, 0x781f, 0xe01f, 0xf814]
+        components = []
+        for i in range(12):
+            components.append(FillComponent(i*16, i*16, 16, 64, colors[i]))
+        for i in range(7):
+            components.append(TextComponent(192, i*32, 48, 32, "TEST", colors[i], colors[i*2]))
+        self._test_screen = Screen(0, self, components)
+
+
         # Call garbage collection to clean up potential temporary allocated objects
         if gc_collect:
             _gc_collect()
+
 
     def _set_font(self, font):
         self._font._set_font(font)
@@ -1242,8 +1260,8 @@ class WatchGraphics():
         self._window_info[_WGWI_WIDTH] = self.width
         self._window_info[_WGWI_HEIGHT] = self.height
         self._window_info[_WGWI_XPOS] = x
-        self._window_info[_WGWI_YPOS] = y
-        self._window_info[_WGWI_YSHIFT] = shift_y
+        self._window_info[_WGWI_YPOS] = y+ARROFF
+        self._window_info[_WGWI_YSHIFT] = shift_y+ARROFF
 
     def _set_bgcolor(self, bgcolor:int):
         self.bgcolor = bgcolor
@@ -1285,7 +1303,7 @@ class WatchGraphics():
     def blit(self, image, x:int, y:int):
         window_info:ptr32 = ptr32(self._window_info)
 
-        y += window_info[_WGWI_YSHIFT]
+        y += window_info[_WGWI_YSHIFT]-ARROFF
         window_width:int = window_info[_WGWI_WIDTH]
         window_height:int = window_info[_WGWI_HEIGHT]
 
@@ -1330,7 +1348,7 @@ class WatchGraphics():
             croppedx._setup(image, skip_cols, width)
             image = croppedx
 
-        self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]+y)
+        self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]-ARROFF+y)
         image.reset()
 
 
@@ -1343,7 +1361,7 @@ class WatchGraphics():
     def fill(self, color:int, x:int, y:int, width:int, height:int):
         window_info:ptr32 = ptr32(self._window_info)
 
-        y += window_info[_WGWI_YSHIFT]
+        y += window_info[_WGWI_YSHIFT]-ARROFF
         window_height:int = window_info[_WGWI_HEIGHT]
         window_width:int = window_info[_WGWI_WIDTH]
         if y < 0:
@@ -1360,7 +1378,7 @@ class WatchGraphics():
             height += (window_height-1)-max_y
         if width <= 0 or height <= 0:
             return
-        self.display.wgl_fill(color, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]+y, width, height)
+        self.display.wgl_fill(color, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]-ARROFF+y, width, height)
 
 
     # Draw a line, with a given thickness and color, between the start and endpoints,
@@ -1408,7 +1426,7 @@ class WatchGraphics():
         window_info:ptr32 = ptr32(self._window_info)
 
         # Shift content by y, do not shift before, else it would be shifted twice, when using simple fill operations
-        yshift:int = window_info[_WGWI_YSHIFT]
+        yshift:int = window_info[_WGWI_YSHIFT]-ARROFF
         y0 += yshift
         y1 += yshift
 
@@ -1436,7 +1454,7 @@ class WatchGraphics():
 
 
         wxpos:int = window_info[_WGWI_XPOS]
-        wypos:int = window_info[_WGWI_YPOS]
+        wypos:int = window_info[_WGWI_YPOS]-ARROFF
 
         while True:
             # Cropping the current point so it doesnt overdraw

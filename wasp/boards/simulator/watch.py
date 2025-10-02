@@ -7,6 +7,7 @@ def sleep_ms(ms):
 time.sleep_ms = sleep_ms
 time.ticks_ms = lambda : int(time.time() * 1000)
 time.ticks_us = lambda : int(time.time() * 1000 * 1000)
+time.ticks_add = lambda x, d : (x+d)
 time.ticks_diff = lambda x, y : x-y
 
 import sys, traceback
@@ -20,8 +21,6 @@ import draw565
 import watchgl
 import os
 import warnings
-
-from watchgl import DisplaySpec, COLORFORMAT_RGB565
 
 from machine import I2C
 from machine import Pin
@@ -203,9 +202,13 @@ display = ST7789_SPI(240, 240, spi,
         cs=Pin("DISP_CS", Pin.OUT, quiet=True),
         dc=Pin("DISP_DC", Pin.OUT, quiet=True),
         res=Pin("DISP_RST", Pin.OUT, quiet=True))
-display.spec = DisplaySpec(display.width, display.height, COLORFORMAT_RGB565, scroll_directions=frozenset([]))
+display.spec = watchgl.DisplaySpec(display.width, display.height, watchgl.COLORFORMAT_RGB565, scroll_directions=frozenset([]))
 wgl = watchgl.WatchGraphics(display)
 drawable = draw565.Draw565(wgl)
+
+
+#while True:
+#    wgl._test_screen._draw_scroll(0)
 
 accel = Accelerometer()
 battery = Battery()

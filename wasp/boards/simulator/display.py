@@ -41,6 +41,10 @@ def window_redraw(vsc_line:int):
     global windowsurface
     if vsc_line is None:
         vsc_line = 0
+    sdl2.SDL_FillRect(windowsurface, sdl2.SDL_Rect(SKIN['radjust'][0]-16, SKIN['radjust'][1]-10, 16, XHEIGHT+20), 0xFFFFFFFF)
+
+    sdl2.SDL_FillRect(windowsurface, sdl2.SDL_Rect(SKIN['radjust'][0]-16, SKIN['radjust'][1]+vsc_line-2, 16, 5), 0xFFFF0000)
+
     if vsc_line+HEIGHT <= XHEIGHT:
         sdl2.SDL_BlitSurface(
             windowsurface,
@@ -111,7 +115,7 @@ class ST7789Sim(object):
         elif self.cmd == VSCSAD:
             # Ensure that a VSCRDEF has been ran before
             assert(self.vsc_line is not None)
-            vsc_line = (data[0]<<8)+data[1]&0xFF
+            vsc_line = (data[0]<<8)+(data[1]&0xFF)
             # Assert than the new vsc_line is valid
             assert(vsc_line >= 0 and vsc_line < XHEIGHT)
             self.vsc_line = vsc_line
