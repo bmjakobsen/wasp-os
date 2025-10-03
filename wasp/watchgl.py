@@ -159,6 +159,7 @@ def _skip_pixels(s, n:int):
 
 
 
+_VSCROLL_STRIPE_SIZE_REDUCTION = const(1)
 class DisplaySpec():
     def __init__(self, width:int, height:int, color_format:int, scroll_directions:frozenset[int]=frozenset([]), vscroll_stripe_size:int=0):
         self.width:int = width
@@ -189,8 +190,8 @@ class DisplaySpec():
         if self.x_offset < 0 or self.y_offset < 0:
             raise Exception("Shouldnt Happen")
 
-        if vscroll_stripe_size >= 2:
-            vscroll_stripe_size -= 2
+        if vscroll_stripe_size >= _VSCROLL_STRIPE_SIZE_REDUCTION:
+            vscroll_stripe_size -= _VSCROLL_STRIPE_SIZE_REDUCTION
         if vscroll_stripe_size < 0:
             raise Exception("vscroll_stripe_size must not be negative")
         if vscroll_stripe_size < (2*TILE_SIZE+self.y_offset):
@@ -1515,17 +1516,17 @@ class WatchGraphics():
                 if rwidth > fill_w:
                     fill_w = rwidth
             elif y_offset == 0 and rheight == fill_h:
-                if x_offset < 0:
-                    fill_x += x_offset
-                    fill_w -= x_offset
-                else:
-                    fill_w += x_offset
+                if rx0 < fill_x:
+                    fill_w += fill_x-rx0
+                    fill_x = rx0
+                elif (rx0+rwidth) > (fill_x+fill_w):
+                    fill_w += (rx0+rwidth)-(fill_x+fill_w)
             elif x_offset == 0 and rwidth == fill_w:
-                if y_offset < 0:
-                    fill_y += y_offset
-                    fill_h -= y_offset
-                else:
-                    fill_h += y_offset
+                if ry0 < fill_y:
+                    fill_h += fill_y-ry0
+                    fill_y = ry0
+                elif (ry0+rheight) > (fill_y+fill_h):
+                    fill_h += (ry0+rheight)-(fill_y+fill_h)
             else:
                 if fill_x != -1:
                     wgl_fill(color, wxpos+fill_x, wypos+fill_y, fill_w, fill_h)
