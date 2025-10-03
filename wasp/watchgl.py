@@ -194,7 +194,7 @@ class DisplaySpec():
         vscroll_stripe_size = vscroll_stripe_tsize*TILE_SIZE
         if vscroll_stripe_tsize < 0:
             raise Exception("vscroll_stripe_size must not be negative")
-        if vscroll_stripe_tsize < 2 or True:         # Currently scrolling is deactivated
+        if vscroll_stripe_tsize < 2:
             if DIRECTION_UP in scroll_directions or DIRECTION_DOWN in scroll_directions:
                 raise Exception("Vertical Scrolling area is too small to implement scrolling, must specify allowed scrolling directions to not include UP or DOWN")
 
@@ -849,6 +849,7 @@ _SC_THEIGHT = const(2)          # Height of screen in Components
 # Horizontal and Vertical Offset to usable screen inside of real screen
 _SC_XOFFSET = const(3)
 _SC_YOFFSET = const(4)
+_SC_MAX_AHEAD = const(5)
 
 # This means that the component Grid is centered horizontally, but not vertically.
 
@@ -856,7 +857,6 @@ _SC_YOFFSET = const(4)
 
 _SC_YMAP_NULL_ENTRY = const(_MAX_TILES_HEIGHT*2)
 
-_SC_MAX_AHEAD = const(32)
 class Screen():
     _8BIT_UNSIGNED_INT = _array_get_int_type(8, unsigned=True)
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
@@ -892,12 +892,13 @@ class Screen():
         y_offset:int = display_spec.y_offset
 
 
-        self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(5*4)))
+        self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
         self._screen_info[_SC_WIDTH] = self.display_width
         self._screen_info[_SC_HEIGHT] = self.display_height
         self._screen_info[_SC_THEIGHT] = tiled_height
         self._screen_info[_SC_XOFFSET] = x_offset
         self._screen_info[_SC_YOFFSET] = y_offset
+        self._screen_info[_SC_MAX_AHEAD] = display_spec.vscroll_stripe_size
 
 
         # The bitfield is used to detect overlaps in components
@@ -1092,6 +1093,7 @@ class Screen():
         TILED_HEIGHT:int = sc_info[_SC_THEIGHT]
         X_OFFSET:int = sc_info[_SC_XOFFSET]
         Y_OFFSET:int = sc_info[_SC_YOFFSET]
+        MAX_AHEAD:int = sc_info[_SC_MAX_AHEAD]
         bgcolor:int = self.bgcolor
 
         #update_array:ptr16 = ptr16(self.update_array)
@@ -1120,7 +1122,7 @@ class Screen():
                 stripe_size += Y_OFFSET
 
             # Scroll if there isnt enough buffer space ahead
-            while ahead+stripe_size > _SC_MAX_AHEAD:
+            while ahead+stripe_size > MAX_AHEAD:
                 if int(ticks_diff(scroll_next_pixel, ticks_ms())) > 0:
                     sleep_ms(1)
                     continue
