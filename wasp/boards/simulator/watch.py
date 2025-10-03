@@ -207,8 +207,16 @@ wgl = watchgl.WatchGraphics(display)
 drawable = draw565.Draw565(wgl)
 
 
-#while True:
-#    wgl._test_screen._draw_scroll(0)
+_WGL_SCROLL_TEST = False
+if _WGL_SCROLL_TEST:
+    _test_screen = wgl._create_test_screen()
+    _test_screen._draw_full()
+    input()
+    while True:
+        _test_screen._draw_scroll(watchgl.DIRECTION_DOWN)
+        _test_screen._draw_scroll(watchgl.DIRECTION_DOWN)
+        _test_screen._draw_scroll(watchgl.DIRECTION_UP)
+        _test_screen._draw_scroll(watchgl.DIRECTION_UP)
 
 accel = Accelerometer()
 battery = Battery()
