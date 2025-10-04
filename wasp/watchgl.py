@@ -177,24 +177,22 @@ class DisplaySpec():
             raise Exception("The screen is too wide to handle, currently not more than "+str(_MAX_SCREEN_WIDTH)+" is allowed")
         if height > _MAX_SCREEN_WIDTH:
             raise Exception("The screen is too wide to handle, currently not more than "+str(_MAX_SCREEN_HEIGHT)+" is allowed")
-        if width%2 != 0 or height%2 != 0:
-            raise Exception("Screen Height and Width must be divisible by 2")
 
 
         self.tiled_width:int = width//TILE_SIZE
         self.tiled_height:int = height//TILE_SIZE
 
         self.x_offset:int = (width-(self.tiled_width*TILE_SIZE))//2
-        self.y_offset:int = (height-(self.tiled_height*TILE_SIZE))//2
+        self.y_chin:int = height-(self.tiled_height*TILE_SIZE)
 
-        if self.x_offset < 0 or self.y_offset < 0:
+        if self.x_offset < 0 or self.y_chin < 0:
             raise Exception("Shouldnt Happen")
 
         if vscroll_stripe_size >= _VSCROLL_STRIPE_SIZE_REDUCTION:
             vscroll_stripe_size -= _VSCROLL_STRIPE_SIZE_REDUCTION
         if vscroll_stripe_size < 0:
             raise Exception("vscroll_stripe_size must not be negative")
-        if vscroll_stripe_size < (2*TILE_SIZE+self.y_offset):
+        if vscroll_stripe_size < (2*TILE_SIZE+self.y_chin):
             if DIRECTION_UP in scroll_directions or DIRECTION_DOWN in scroll_directions:
                 raise Exception("Vertical Scrolling area is too small to implement scrolling, must specify allowed scrolling directions to not include UP or DOWN")
 
@@ -847,7 +845,7 @@ _SC_HEIGHT = const(1)           # Height of Screen
 _SC_THEIGHT = const(2)          # Height of screen in Components
 # Horizontal and Vertical Offset to usable screen inside of real screen
 _SC_XOFFSET = const(3)
-_SC_YOFFSET = const(4)
+_SC_YCHIN = const(4)
 _SC_MAX_AHEAD = const(5)
 
 # This means that the component Grid is centered horizontally, but not vertically.
@@ -888,7 +886,7 @@ class Screen():
         self.tiled_height:int = tiled_height
 
         x_offset:int = display_spec.x_offset
-        y_offset:int = display_spec.y_offset
+        y_chin:int = display_spec.y_chin
 
 
         self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
@@ -896,7 +894,7 @@ class Screen():
         self._screen_info[_SC_HEIGHT] = self.display_height
         self._screen_info[_SC_THEIGHT] = tiled_height
         self._screen_info[_SC_XOFFSET] = x_offset
-        self._screen_info[_SC_YOFFSET] = y_offset
+        self._screen_info[_SC_YCHIN] = y_chin
         self._screen_info[_SC_MAX_AHEAD] = display_spec.vscroll_stripe_size
 
 
@@ -1004,7 +1002,6 @@ class Screen():
 
         sc_info:ptr32 = ptr32(self._screen_info)
         X_OFFSET:int = sc_info[_SC_XOFFSET]
-        Y_OFFSET:int = sc_info[_SC_YOFFSET]
 
 
         # Use Pointers to set value
@@ -1040,7 +1037,7 @@ class Screen():
                     continue
                 cid = id_block_off+id_sub
                 com = self.components[cid]
-                set_com_context(com._font, X_OFFSET+int(com.x), Y_OFFSET+int(com.y), com.width, com.height, 0)
+                set_com_context(com._font, X_OFFSET+int(com.x), int(com.y), com.width, com.height, 0)
                 com_draw = com.draw
                 com_draw(com, com._state, wgl)
                 com.dirty = builtin_false
@@ -1058,12 +1055,11 @@ class Screen():
         #sc_info:ptr32 = ptr32(self._screen_info)
         sc_info:memoryview = self._screen_info
         X_OFFSET:int = sc_info[_SC_XOFFSET]
-        Y_OFFSET:int = sc_info[_SC_YOFFSET]
 
         for n in range(0, 9):
             update_array[n] = 0
         for com in self.components:
-            set_com_context(com._font, X_OFFSET+int(com.x), Y_OFFSET+int(com.y), com.width, com.height, 0)
+            set_com_context(com._font, X_OFFSET+int(com.x), int(com.y), com.width, com.height, 0)
             com_draw = com.draw
             com_draw(com, com._state, wgl)
             com.dirty = builtin_false
@@ -1081,8 +1077,6 @@ class Screen():
         if scroll_direction != DIRECTION_UP and scroll_direction != DIRECTION_DOWN:
             raise Exception("Invalid Direction given")
 
-        #if scroll_direction != DIRECTION_UP:
-        #    raise Exception("Currently Only scrolling up implemented")
 
         vscroll = wgl.display.wgl_vscroll
         #sc_info:ptr32 = ptr32(self._screen_info)
@@ -1091,7 +1085,7 @@ class Screen():
         HEIGHT:int = sc_info[_SC_HEIGHT]
         TILED_HEIGHT:int = sc_info[_SC_THEIGHT]
         X_OFFSET:int = sc_info[_SC_XOFFSET]
-        Y_OFFSET:int = sc_info[_SC_YOFFSET]
+        Y_CHIN:int = sc_info[_SC_YCHIN]
         MAX_AHEAD:int = sc_info[_SC_MAX_AHEAD]
         bgcolor:int = self.bgcolor
 
@@ -1117,28 +1111,27 @@ class Screen():
             ypos:int = -16
             YPOS_CHANGE:int = TILE_SIZE
             SCROLL_D:int = -1
-            CDL_OFFSET_FACTOR:int = 0
+            CDL_OFFSET:int = 0
             SCROLL_RANGE = range(0, TILED_HEIGHT)
         elif scroll_direction == DIRECTION_DOWN:
-            current_draw_line:int = -1
+            current_draw_line:int = 0
             FIRST_ROW:int = TILED_HEIGHT-1
             LAST_ROW:int = 0
-            ypos:int = 240
-            YPOS_CHANGE:int = -TILE_SIZE
+            ypos:int = (TILED_HEIGHT*16)
+            YPOS_CHANGE:int = 0-TILE_SIZE
             SCROLL_D:int = 1
-            CDL_OFFSET_FACTOR:int = -1
+            CDL_OFFSET:int = 0-TILE_SIZE
             SCROLL_RANGE = range(TILED_HEIGHT-1, -1, -1)
-
+            if Y_CHIN > 0:
+                fill(bgcolor, 0, current_draw_line-Y_CHIN, WIDTH, Y_CHIN)
+                current_draw_line -= Y_CHIN
+                ahead += Y_CHIN
 
         for trow in SCROLL_RANGE:
             ypos += YPOS_CHANGE
-            stripe_size:int = TILE_SIZE
-            if trow == FIRST_ROW or trow == LAST_ROW:
-                stripe_size += Y_OFFSET
-            cdl_offset = CDL_OFFSET_FACTOR*stripe_size
 
             # Scroll if there isnt enough buffer space ahead
-            while ahead+stripe_size > MAX_AHEAD:
+            while ahead+TILE_SIZE > MAX_AHEAD:
                 if int(ticks_diff(scroll_next_pixel, ticks_ms())) > 0:
                     sleep_ms(1)
                     continue
@@ -1148,9 +1141,7 @@ class Screen():
                 ahead -= 1
                 vscroll(0-SCROLL_D)
 
-            fill(bgcolor, 0, current_draw_line+cdl_offset, WIDTH, stripe_size)
-            if trow == FIRST_ROW:
-                current_draw_line += Y_OFFSET if (scroll_direction == DIRECTION_UP) else (0-Y_OFFSET)
+            fill(bgcolor, 0, current_draw_line+CDL_OFFSET, WIDTH, TILE_SIZE)
 
             trow_x_2:int = trow<<1
             row_offset = (ymap[trow_x_2]<<8)+ymap[trow_x_2+1]
@@ -1160,7 +1151,7 @@ class Screen():
                 com = self.components[com_id-1]
                 com_draw = com.draw
                 yshift:int = int(com.y)-ypos
-                set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line+cdl_offset, com.width, TILE_SIZE, yshift)
+                set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line+CDL_OFFSET, com.width, TILE_SIZE, yshift)
                 com_draw(com, com._state, wgl)
                 com.dirty = builtin_false
                 while ahead > 0 and int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
@@ -1170,7 +1161,19 @@ class Screen():
                     ahead -= 1
                     vscroll(0-SCROLL_D)
             current_draw_line += YPOS_CHANGE
-            ahead += stripe_size
+            ahead += TILE_SIZE
+        if scroll_direction == DIRECTION_UP and Y_CHIN > 0:
+            while ahead+Y_CHIN+1 > MAX_AHEAD:
+                if int(ticks_diff(scroll_next_pixel, ticks_ms())) > 0:
+                    sleep_ms(1)
+                    continue
+                scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
+                current_draw_line += SCROLL_D
+                scroll_remaining -= 1
+                ahead -= 1
+                vscroll(0-SCROLL_D)
+            fill(bgcolor, 0, current_draw_line, WIDTH, Y_CHIN)
+            ahead += Y_CHIN
         while scroll_remaining > 0:
             if int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
                 scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
@@ -1262,13 +1265,19 @@ class WatchGraphics():
 
 
 
-    def _create_test_screen(self):
+    def _create_test_screen(self, v=0):
         colors = [0xf800, 0xfba0, 0xffc0, 0xff20,   0xbfe0, 0x67e0, 0x07e2, 0x07f2,   0x07fd, 0x055f, 0x033f, 0x0ff,   0x281f, 0x781f, 0xe01f, 0xf814]
         components = []
-        for i in range(11):
+        if v == 0:
+            SLICES = 11
+            TOFF = 0
+        elif v == 1:
+            SLICES = 10
+            TOFF = -16
+        for i in range(SLICES):
             components.append(FillComponent(i*16, i*16, 16, 80, colors[i]))
         for i in range(7):
-            components.append(TextComponent(176, i*32, 64, 32, "TEST", colors[i], colors[i+8]))
+            components.append(TextComponent(176+TOFF, i*32, 64, 32, "TEST", colors[i], colors[i+8]))
         return Screen(0, self, components)
 
 

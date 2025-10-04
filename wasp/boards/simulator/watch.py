@@ -209,14 +209,18 @@ drawable = draw565.Draw565(wgl)
 
 _WGL_SCROLL_TEST = False
 if _WGL_SCROLL_TEST:
-    _test_screen = wgl._create_test_screen()
+    _test_screen = wgl._create_test_screen(v=0)
     _test_screen._draw_full()
     input()
     while True:
         _test_screen._draw_scroll(watchgl.DIRECTION_DOWN)
+        input()
         _test_screen._draw_scroll(watchgl.DIRECTION_DOWN)
+        input()
         _test_screen._draw_scroll(watchgl.DIRECTION_UP)
+        input()
         _test_screen._draw_scroll(watchgl.DIRECTION_UP)
+        input()
 
 accel = Accelerometer()
 battery = Battery()

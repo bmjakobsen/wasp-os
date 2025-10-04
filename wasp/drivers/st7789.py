@@ -238,7 +238,7 @@ class ST7789(object):
 
             set_window(x, y, width, height)
 
-            #print("FILL: ", x, y, width, height)
+            #print("FILL "+hex(color)+": ", x, y, width, height)
 
             quick_start()
 
