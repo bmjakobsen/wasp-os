@@ -12,6 +12,7 @@ freeze('../..', manifest_240x240.manifest + manifest_user_apps.manifest +
     (
         'boot.py',
         'draw565.py',
+        'watchgl.py',
         'drivers/bma421.py',
         'drivers/battery.py',
         'drivers/hrs3300.py',
