@@ -1,10 +1,9 @@
-
 #!/usr/bin/env python3
 from array import array
 import math
 import fonts.sans24
 import builtins
-from time import ticks_ms, ticks_add, ticks_diff
+#from time import ticks_ms, ticks_add, ticks_diff
 
 
 
@@ -40,19 +39,18 @@ except (ImportError, AttributeError):
 
 
 TILE_SIZE = const(16)                       # Size of tiles on the screen, all components must be aligned to tiles
-_TILE_SIZE_DIV = const(4)                   # Number of bits to shift right by to divide by the Tile Size
-_TILE_SIZE_MOD_MASK = const(0xfffff0)       # Bitmask to get the modulo, x%TILE_SIZE => x&TILE_SIZE_MOD_MASK
 
 _TILES_PER_VSCROLL_STRIPE = const(2)
 _VSCROLL_STRIPE_SIZE = const(TILE_SIZE*_TILES_PER_VSCROLL_STRIPE)
 _VSCROLL_STRIPE_SIZE2 = const(_VSCROLL_STRIPE_SIZE*2)
 
 
-_MAX_TILES_PER_DIM = const(16)
+_MAX_TILES_WIDTH = const(16)
+_MAX_TILES_HEIGHT = const(20)
 
 # The Max size of the screen is dependent on the tile size, currently it is assumed that all screens have at most 16 Tiles in the width
-_MAX_SCREEN_WIDTH = const(TILE_SIZE*_MAX_TILES_PER_DIM)
-_MAX_SCREEN_HEIGHT = const(TILE_SIZE*_MAX_TILES_PER_DIM)
+_MAX_SCREEN_WIDTH = const(TILE_SIZE*_MAX_TILES_WIDTH)
+_MAX_SCREEN_HEIGHT = const(TILE_SIZE*_MAX_TILES_HEIGHT)
 
 
 
@@ -174,13 +172,13 @@ class DisplaySpec():
         if height > _MAX_SCREEN_WIDTH:
             raise Exception("The screen is too wide to handle, currently not more than "+str(_MAX_SCREEN_HEIGHT)+" is allowed")
 
-        self.tiled_height:int = height>>_TILE_SIZE_DIV
-        self.tiled_width:int = width>>_TILE_SIZE_DIV
+        self.tiled_height:int = height//TILE_SIZE
+        self.tiled_width:int = width//TILE_SIZE
 
 
         if vscroll_stripe_size < 0:
             raise Exception("vscroll_stripe_size must not be negative")
-        if vscroll_stripe_size < _VSCROLL_STRIPE_SIZE2:
+        if vscroll_stripe_size < _VSCROLL_STRIPE_SIZE2 or True:         # Currently scrolling is deactivated
             if DIRECTION_UP in scroll_directions or DIRECTION_DOWN in scroll_directions:
                 raise Exception("Vertical Scrolling area is too small to implement scrolling, must specify allowed scrolling directions to not include UP or DOWN")
 
@@ -534,7 +532,7 @@ class MonoImageStream():
             n = remaining
         if n <= 0:
             return 0
-        # Offset is in pixels, but offset is required in bytes
+        # Offset is in pixels, but offset is required in bytes, so multiply by two
         offset = (offset<<1)
 
 
@@ -588,10 +586,10 @@ def _draw_function_sample(com:'Component', wg:'WatchGraphics'):
 
 class Component():
     def __init__(self, x:int, y:int, width:int, height:int, draw_function):
-        if (x < 0 or x&_TILE_SIZE_MOD_MASK != 0 or
-          y < 0 or y&_TILE_SIZE_MOD_MASK != 0 or
-          width <= 0 or width&_TILE_SIZE_MOD_MASK != 0 or
-          height <= 0 or height&_TILE_SIZE_MOD_MASK != 0):
+        if (x < 0 or x%TILE_SIZE != 0 or
+          y < 0 or y%TILE_SIZE != 0 or
+          width <= 0 or width%TILE_SIZE != 0 or
+          height <= 0 or height%TILE_SIZE != 0):
             raise Exception("Invalid Sizing or Positioning of Component, Components Size and Position must be aligned to "+str(TILE_SIZE)+", Position must not be negative and Size must be greater than 0")
 
         self.x:int = x
@@ -603,7 +601,7 @@ class Component():
         self.draw = draw_function
         self._state:dict[str, object] = {}
         self.dirty:bool = True
-        self._screen:"Screen" = _DUMMY_SCREEN
+        self._screen:"Screen" = None
         self._cid:int = 0
     def init_vars(self, state:dict[str, object]):
         self._state = state
@@ -635,17 +633,20 @@ class Screen():
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
 
 
-    _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(_16BIT_UNSIGNED_INT, bytearray(_MAX_TILES_PER_DIM*4)))
-    def __init__(self, bgcolor:int, display_spec:DisplaySpec, components:list['Component']):
+    _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(_16BIT_UNSIGNED_INT, bytearray(_MAX_TILES_HEIGHT*2)))
+    def __init__(self, bgcolor:int, wg:'WatchGraphics', components:list['Component']):
         if len(components) > 127:
             raise Exception("Too many components")
         self.bgcolor:int = bgcolor
 
+        self.wg = wg
+        display_spec = wg.display.spec
+
         self.display_spec:DisplaySpec = display_spec
 
 
-        tiled_height:int = display_spec.width>>_TILE_SIZE_DIV
-        tiled_width:int = display_spec.height>>_TILE_SIZE_DIV
+        tiled_height:int = display_spec.width//TILE_SIZE
+        tiled_width:int = display_spec.height//TILE_SIZE
         self.tiled_height = tiled_height
 
         self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(3*4)))
@@ -653,35 +654,35 @@ class Screen():
         self._screen_info[_SC_HEIGHT] = display_spec.height
         self._screen_info[_SC_THEIGHT] = tiled_height
 
-        assert(tiled_height <= _MAX_TILES_PER_DIM and tiled_width <= _MAX_TILES_PER_DIM)
+        assert(tiled_height <= _MAX_TILES_HEIGHT and tiled_width <= _MAX_TILES_WIDTH)
 
-        com_map_y:list[list[int]] = []
+        #com_map_y:list[list[int]] = []
 
         # The bitfield is used to detect overlaps in components
         # Each array index is a row and each bit says wether that column is occupied by a component
         bitfield:memoryview = self._CREATION_OVERLAP_BITMASK
         for i in range(tiled_height):
             bitfield[i] = 0
-            com_map_y.append([])
+            #com_map_y.append([])
 
 
         ncomponents:list['Component'] = []
         cid:int = 1
         for c in components:
             # Get y range occupied by tile
-            cy0:int = (c.y)>>_TILE_SIZE_DIV
-            cy1:int = cy0+(c.height>>_TILE_SIZE_DIV)
+            cy0:int = (c.y)//TILE_SIZE
+            cy1:int = cy0+(c.height//TILE_SIZE)
 
             # Get x range occupied by tile
-            cx0:int = (c.x)>>_TILE_SIZE_DIV
-            cx1:int = cx0+(c.width>>_TILE_SIZE_DIV)
+            cx0:int = (c.x)//TILE_SIZE
+            cx1:int = cx0+(c.width//TILE_SIZE)
 
             if cy1 > tiled_height or cx1 > tiled_width:
                 raise Exception("Component goes out of screen bounds")
 
             # Check and set flags in bitfield wether a given position is already occupied by another component
             for cyp in range(cy0, cy1):
-                com_map_y[cyp].append(cid)
+                #com_map_y[cyp].append(cid)
                 value = bitfield[cyp]
                 for i in range(cx0, cx1):
                     if (value>>i)&1:
@@ -696,10 +697,10 @@ class Screen():
             cid = cid+1
 
 
+        """
         map_empty_row:memoryview = memoryview(array(self._8BIT_UNSIGNED_INT, [0]))
         last_used_memoryview:memoryview = map_empty_row
         last_used_list:list[int] = [0]
-
         com_map_y2:list[memoryview] = []
         for r in com_map_y:
             r.append(0)
@@ -712,6 +713,7 @@ class Screen():
                 last_used_memoryview = memoryview(array(self._8BIT_UNSIGNED_INT, r))
                 com_map_y2.append(last_used_memoryview)
         self.com_map_y:list[memoryview] = com_map_y2
+        """
 
 
         self.components:list['Component'] = ncomponents
@@ -728,7 +730,8 @@ class Screen():
 
 
     @micropython.viper
-    def draw_lazy(self, wg):
+    def draw_lazy(self):
+        wg = self.wg
         update_array:ptr16 = ptr16(self.update_array)
         set_com_context = wg._set_component_context
         builtin_false = builtins.bool(False)
@@ -774,7 +777,8 @@ class Screen():
 
 
     @micropython.viper
-    def draw_full(self, wg):
+    def draw_full(self):
+        wg = self.wg
         update_array:ptr16 = ptr16(self.update_array)
         set_com_context = wg._set_component_context
 
@@ -788,14 +792,20 @@ class Screen():
             com_draw(com, wg)
             com.dirty = builtin_false
 
+    """
     @micropython.viper
-    def draw_scroll(self, wg, scroll_direction:int):
+    def draw_scroll(self, scroll_direction:int):
+        wg = self.wg
         if scroll_direction != DIRECTION_UP and scroll_direction != DIRECTION_DOWN:
             raise Exception("Invalid Direction given")
         window_info:ptr32 = ptr32(self._screen_info)
         height:int = window_info[_SC_HEIGHT]
         tiled_height:int = window_info[_SC_THEIGHT]
+    """
 
+
+    def switch_screen(self, ns:'Screen', direction:int):
+        self.wg._set_screen(self, ns)
 
 
 
@@ -857,7 +867,9 @@ class WatchGraphics():
         self._text_bgcolor:int = _DEFAULT_BGCOLOR
         self._text_bgcolor_modified:bool = True
 
-        self.scroll_direction:int = DIRECTION_UP
+        self._screen = None
+
+        #self.scroll_direction:int = DIRECTION_UP
 
         self.width:int = self.display.spec.width
         self.height:int = self.display.spec.height
@@ -899,6 +911,20 @@ class WatchGraphics():
         self._window_info[_WGWI_XPOS] = x
         self._window_info[_WGWI_YPOS] = y
         self._window_info[_WGWI_YSHIFT] = shift_y
+
+
+    def _set_screen(self, old:Screen, s:Screen):
+        cs = self._screen
+        if old is not None and cs is not old:
+            raise Exception("Cant switch screen if current screen is not active")
+        if cs == s:
+            return
+        if s is None:
+            self.screen = None
+            self._set_screen_context(0)
+        else:
+            self._screen = s
+            self._set_screen_context(s.bgcolor)
 
 
 
@@ -1200,7 +1226,7 @@ class WatchGraphics():
         (rw, rh) = self.string_bounding_box(s)
         rwidth:int = int(rw)
         if align == ALIGNMENT_CENTER:
-            offset:int = (rwidth>>1)
+            offset:int = rwidth//2
             self.draw_string(color, s, x-offset, y)
         elif align == ALIGNMENT_LEFT:
             self.draw_string(color, s, x, y)
@@ -1213,7 +1239,6 @@ class WatchGraphics():
 
 
 
-_DUMMY_SCREEN:Screen = Screen(0, DisplaySpec(0, 0, COLORFORMAT_RGB565, scroll_directions=frozenset([])), [])
 class DummyDisplay(DisplayProtocol):
     def __init__(self, width:int, height:int, color_format:int=COLORFORMAT_RGB565):
         self.spec = DisplaySpec(width, height, color_format, scroll_directions=frozenset([]))

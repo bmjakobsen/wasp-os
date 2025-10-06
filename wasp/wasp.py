@@ -23,6 +23,8 @@ import watch
 import widgets
 import appregistry
 
+from watchgl import Screen, WatchGraphics, Component
+
 from apps.system.launcher import LauncherApp
 from apps.system.pager import PagerApp, CrashApp, NotificationApp
 from apps.system.step_counter import StepCounterApp
@@ -145,6 +147,9 @@ class Manager():
         self._scheduled = False
         self._scheduling = False
 
+    def create_screen(self, bgcolor:int, components:List['Component']) -> Screen:
+        return Screen(bgcolor, watch.wgl, components)
+
     def secondary_init(self):
         global free
 
@@ -249,7 +254,7 @@ class Manager():
             return
 
         if self.app:
-            if 'background' in dir(self.app):
+            if hasattr(self.app, 'background'):
                 try:
                     self.app.background()
                 except:
@@ -261,16 +266,24 @@ class Manager():
                     self.app = True
                     raise
 
+        screen = None
+        if hasattr(self.app, 'primary_screen') and self.app.primary_screen is not None:
+            screen:Screen = primary_screen
+
         # Clear out any configuration from the old application
         self.event_mask = 0
         self.tick_period_ms = 0
         self.tick_expiry = None
 
         self.app = app
-        watch.display.mute(True)
-        watch.drawable.reset()
-        app.foreground()
-        watch.display.mute(False)
+        if sc is None:
+            watch.wgl._set_screen(None, None)
+            watch.display.mute(True)
+            watch.drawable.reset()
+            app.foreground()
+            watch.display.mute(False)
+        else:
+            watch.wgl._set_screen(None, screen)
 
     def navigate(self, direction=None):
         """Navigate to a new application.

@@ -223,7 +223,7 @@ class ST7789(object):
         for _ in range(full_rows):
             write_data(lbuffer)
         if last_row > 0:
-            last_row <<= 1      # Last row x 2 to get number of bytes instead of number of pixels
+            last_row *= 2      # Last row x 2 to get number of bytes instead of number of pixels
             self._write_data_trunc(lbuffer, last_row)
 
     @micropython.viper
@@ -243,7 +243,7 @@ class ST7789(object):
             n = int(read_pixels(lbuffer, scwidth, 0))
             # Number lower than the requested number means end of stream
             if n < scwidth:
-                n <<= 1         # Number of gotten pixels x2 to get number of gotten bytes
+                n *= 2         # Number of gotten pixels x2 to get number of gotten bytes
                 self._write_data_trunc(lbuffer, n)
                 break
             else:

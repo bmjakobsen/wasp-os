@@ -17,6 +17,7 @@ sys.print_exception = print_exception
 
 import array
 import draw565
+import watchgl
 import os
 import warnings
 
@@ -200,7 +201,8 @@ display = ST7789_SPI(240, 240, spi,
         cs=Pin("DISP_CS", Pin.OUT, quiet=True),
         dc=Pin("DISP_DC", Pin.OUT, quiet=True),
         res=Pin("DISP_RST", Pin.OUT, quiet=True))
-drawable = draw565.Draw565(display)
+wgl = watchgl.WatchGraphics(display)
+drawable = draw565.Draw565(wgl)
 
 accel = Accelerometer()
 battery = Battery()
