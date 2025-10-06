@@ -400,12 +400,24 @@ _DEFAULT_TEXT_FGCOLOR:int = const(0xFFFF)
 _PALETTE2_INITALIZER = [0, _DEFAULT_TEXT_FGCOLOR]
 
 
+
+@micropython.viper
+def _convert_color_to_format(format:int, color:int) -> int:
+    color &= 0xFFFF
+    if format == COLORFORMAT_RGB565:
+        return color
+    elif format == COLORFORMAT_RGB565_R:
+        color2:int = (color>>8)&0xFF
+        color = (color<<8)&0xFF00
+        return color | color2
+    else:
+        raise Exception("Unknown Color format specified")
+
+
 _MIS_CBYTE = const(3)
 _MIS_INDEX = const(4)
 _MIS_REM_IN_L = const(5)
 _MIS_REM_IN_B = const(6)
-
-
 # Streamer for reading a memoryview (1 byte per element) as an uncompressed image, with one bit per pixel
 class MonoImageStream():
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
@@ -451,16 +463,7 @@ class MonoImageStream():
             raise Exception("Invalid Palette Index")
         if n < 0:
             raise Exception("Negative Color given")
-        color &= 0xFFFF
-        cf:int = self._color_format
-        if cf == COLORFORMAT_RGB565:
-            self._palette[n] = color
-        elif cf == COLORFORMAT_RGB565_R:
-            color2:int = (color>>8)&0xFF
-            color = (color<<8)&0xFF00
-            self._palette[n] = color | color2
-        else:
-            raise Exception("Unknown Color format specified")
+        self._palette[n] = _convert_color_to_format(self._color_format, color)
 
 
     def reset(self):
@@ -469,15 +472,15 @@ class MonoImageStream():
         #Remaining
         self._extra_state[_SX_REMAINING] = self._n_pixels
         #cbyte
-        self._extra_state[2] = self._raw_data[0]
+        self._extra_state[_MIS_CBYTE] = self._raw_data[0]
         #index
-        self._extra_state[3] = 0
+        self._extra_state[_MIS_INDEX] = 0
         # Remaining in line
-        self._extra_state[4] = self.width
+        self._extra_state[_MIS_REM_IN_L] = self.width
         # Remaining in byte
-        self._extra_state[5] = 8
-        if self._extra_state[4] < 8:
-            self._extra_state[5] = self._extra_state[2]
+        self._extra_state[_MIS_REM_IN_B] = 8
+        if self._extra_state[_MIS_REM_IN_L] < 8:
+            self._extra_state[_MIS_REM_IN_B] = self._extra_state[_MIS_REM_IN_L]
 
     @micropython.viper
     def skip_pixels(self, n:int):
@@ -573,6 +576,145 @@ class MonoImageStream():
         state[_MIS_INDEX] = index
         state[_MIS_REM_IN_B] = rem_in_b
         state[_MIS_REM_IN_L] = rem_in_l
+        return n
+
+
+
+_MRIS_COLOR = const(3)
+_MRIS_RLEN = const(4)
+_MRIS_INDEX = const(5)
+class MonoRleImageStream():
+    _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
+    _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
+    def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
+        self._color_format:int = screen_color_format
+        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER))
+        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
+        self._setup(raw_data, width, height)
+    def _setup(self, raw_data:memoryview, width:int, height:int):
+        if width <= 0 or height <= 0:
+            raise Exception("Image must have a positive size greater than 0")
+
+        self._raw_data:memoryview = raw_data
+        self.width:int = width
+        self.height:int = height
+        self._n_pixels:int = width*height
+
+        # Width
+        self._extra_state[_SX_WIDTH] = self.width
+        # Height
+        self._extra_state[_SX_HEIGHT] = self.height
+        #Remaining
+        self._extra_state[_SX_REMAINING] = self._n_pixels
+        #cbyte
+        self._extra_state[_MRIS_COLOR] = 0
+        # Remaining in byte
+        self._extra_state[_MRIS_RLEN] = raw_data[0]
+        #index
+        self._extra_state[_MRIS_INDEX] = 0
+
+    def get_remaining(self) -> int:
+        return self._extra_state[_SX_REMAINING]
+
+    def set_color(self, n:int, color:int):
+        if n < 0 or n > 1:
+            raise Exception("Invalid Palette Index")
+        if n < 0:
+            raise Exception("Negative Color given")
+        self._palette[n] = _convert_color_to_format(self._color_format, color)
+
+    def reset(self):
+        # Set State required for reading the image
+
+        #Remaining
+        self._extra_state[_SX_REMAINING] = self._n_pixels
+        #color
+        self._extra_state[_MRIS_COLOR] = 0
+        #index
+        self._extra_state[_MRIS_RLEN] = raw_data[0]
+        #index
+        self._extra_state[_MRIS_INDEX] = 0
+
+    @micropython.viper
+    def skip_pixels(self, n:int):
+        state:ptr32 = ptr32(self._extra_state)
+
+        remaining:int = state[_SX_REMAINING]
+        if n > remaining:
+            n = remaining
+        if n <= 0:
+            return
+
+
+        raw_data:ptr8 = ptr8(self._raw_data)
+
+        color:int = state[_MRIS_COLOR]
+        rlen:int = state[_MRIS_RLEN]
+        index:int = state[_MRIS_INDEX]
+
+        n2:int = n
+        while n2 > 0:
+            if rlen <= n2:
+                n2 -= rlen
+                color = (color+1)&1
+                index += 1
+                rlen = raw_data[index]
+            else:
+                rlen -= n2
+        state[_SX_REMAINING] = remaining
+        state[_MRIS_COLOR] = color
+        state[_MRIS_RLEN] = rlen
+        state[_MRIS_INDEX] = index
+
+    @micropython.viper
+    def read_pixels(self, buf, n:int, offset:int) -> int:
+        state:ptr32 = ptr32(self._extra_state)
+
+        buf2:ptr8 = ptr8(buf)
+        remaining:int = state[_SX_REMAINING]
+        if n >= remaining:
+            n = remaining
+        if n <= 0:
+            return 0
+        # Offset is in pixels, but offset is required in bytes, so multiply by two
+        offset = (offset<<1)
+
+
+        palette:ptr16 = ptr16(self._palette)
+        raw_data:ptr8 = ptr8(self._raw_data)
+
+        color:int = state[_MRIS_COLOR]
+        color_0:int = palette[color]&0xFF
+        color_1:int = (palette[color]>>8)&0xFF
+        rlen:int = state[_MRIS_RLEN]
+        index:int = state[_MRIS_INDEX]
+
+
+        while rlen <= 0:
+            index += 1
+            rlen = raw_data[index]
+            color = (color+1)&1
+            color_0 = palette[color]&0xFF
+            color_1 = (palette[color]>>8)&0xFF
+
+        n2:int = n
+        while n2 > 0:
+            n2 -= 1
+            rlen -= 1
+            buf2[offset] = color_0
+            buf2[offset+1] = color_1
+
+            if rlen <= 0:
+                index += 1
+                rlen = raw_data[index]
+                color = (color+1)&1
+                color_0 = palette[color]&0xFF
+                color_1 = (palette[color]>>8)&0xFF
+
+        state[_SX_REMAINING] = remaining
+        state[_MRIS_COLOR] = color
+        state[_MRIS_RLEN] = rlen
+        state[_MRIS_INDEX] = index
         return n
 
 
