@@ -21,6 +21,8 @@ import watchgl
 import os
 import warnings
 
+from watchgl import DisplaySpec, COLORFORMAT_RGB565
+
 from machine import I2C
 from machine import Pin
 from machine import SPI
@@ -201,6 +203,7 @@ display = ST7789_SPI(240, 240, spi,
         cs=Pin("DISP_CS", Pin.OUT, quiet=True),
         dc=Pin("DISP_DC", Pin.OUT, quiet=True),
         res=Pin("DISP_RST", Pin.OUT, quiet=True))
+display.spec = DisplaySpec(display.width, display.height, COLORFORMAT_RGB565, scroll_directions=frozenset([]))
 wgl = watchgl.WatchGraphics(display)
 drawable = draw565.Draw565(wgl)
 

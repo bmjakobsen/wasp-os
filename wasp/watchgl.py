@@ -512,7 +512,7 @@ class MonoImageStream():
                 break
             if rem_in_b == 0:
                 rem_in_b = 8
-                if rem_in_l == 0:
+                if rem_in_l <= 0:
                     rem_in_l = WIDTH
                 elif rem_in_l < 8:
                     rem_in_b = rem_in_l
@@ -562,9 +562,9 @@ class MonoImageStream():
             remaining -= 1
             if remaining <= 0:
                 break
-            if rem_in_b == 0:
+            if rem_in_b <= 0:
                 rem_in_b = 8
-                if rem_in_l == 0:
+                if rem_in_l <= 0:
                     rem_in_l = WIDTH
                 elif rem_in_l < 8:
                     rem_in_b = rem_in_l
@@ -573,6 +573,7 @@ class MonoImageStream():
         state[_SX_REMAINING] = remaining
         state[_MIS_CBYTE] = cbyte
         state[_MIS_INDEX] = index
+        print(rem_in_b)
         state[_MIS_REM_IN_B] = rem_in_b
         state[_MIS_REM_IN_L] = rem_in_l
         return n
@@ -671,7 +672,9 @@ class MonoRleImageStream():
 
         buf2:ptr8 = ptr8(buf)
         remaining:int = state[_SX_REMAINING]
+        empty:bool = False
         if n >= remaining:
+            empty = True
             n = remaining
         if n <= 0:
             return 0
@@ -701,7 +704,7 @@ class MonoRleImageStream():
             buf2[offset] = color_0
             buf2[offset+1] = color_1
 
-            if rlen <= 0:
+            if rlen <= 0 and (n2 > 0 or not empty):
                 index += 1
                 rlen = raw_data[index]
                 color = (color+1)&1
@@ -813,8 +816,10 @@ class Rle2ImageStream():
 
         buf2:ptr8 = ptr8(buf)
         remaining:int = state[_SX_REMAINING]
+        empty:bool = False
         if n >= remaining:
             n = remaining
+            empty = True
         if n <= 0:
             return 0
         # Offset is in pixels, but offset is required in bytes, so multiply by two
@@ -844,7 +849,7 @@ class Rle2ImageStream():
             buf2[offset] = color_0
             buf2[offset+1] = color_1
 
-            if rlen <= 0:
+            if rlen <= 0 and (n2 > 0 or not empty):
                 index += 1
                 fbyte = raw_data[index]
                 color = (fbyte>>6)&3
@@ -1174,6 +1179,9 @@ class WatchGraphics():
         # Call garbage collection to clean up potential temporary allocated objects
         if gc_collect:
             _gc_collect()
+
+    def set_font(self, font):
+        self._font._setup(font)
 
     def _set_screen_context(self, bgcolor:int):
         self.bgcolor = bgcolor
