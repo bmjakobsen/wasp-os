@@ -25,13 +25,14 @@ except ImportError:
     ptr8 = memoryview
     ptr16 = memoryview
     ptr32 = memoryview
-
     def _sleep_ms(ms):
         time.sleep(ms / 1000)
     time.sleep_ms = _sleep_ms                                   # type: ignore[attr-defined]
     time.ticks_ms = lambda : int(time.time() * 1000)            # type: ignore[attr-defined]
     time.ticks_us = lambda : int(time.time() * 1000 * 1000)     # type: ignore[attr-defined]
+    time.ticks_add = lambda x, d : (x+d)                        # type: ignore[attr-defined]
     time.ticks_diff = lambda x, y : x-y                         # type: ignore[attr-defined]
+
 
 
 try:
@@ -158,6 +159,7 @@ def _skip_pixels(s, n:int):
 
 
 
+_VSCROLL_STRIPE_SIZE_REDUCTION = const(1)
 class DisplaySpec():
     def __init__(self, width:int, height:int, color_format:int, scroll_directions:frozenset[int]=frozenset([]), vscroll_stripe_size:int=0):
         self.width:int = width
@@ -175,25 +177,22 @@ class DisplaySpec():
             raise Exception("The screen is too wide to handle, currently not more than "+str(_MAX_SCREEN_WIDTH)+" is allowed")
         if height > _MAX_SCREEN_WIDTH:
             raise Exception("The screen is too wide to handle, currently not more than "+str(_MAX_SCREEN_HEIGHT)+" is allowed")
-        if width%2 != 0 or height%2 != 0:
-            raise Exception("Screen Height and Width must be divisible by 2")
 
 
         self.tiled_width:int = width//TILE_SIZE
         self.tiled_height:int = height//TILE_SIZE
 
         self.x_offset:int = (width-(self.tiled_width*TILE_SIZE))//2
-        self.y_offset:int = (height-(self.tiled_height*TILE_SIZE))//2
+        self.y_chin:int = height-(self.tiled_height*TILE_SIZE)
 
-        if self.x_offset < 0 or self.y_offset < 0:
+        if self.x_offset < 0 or self.y_chin < 0:
             raise Exception("Shouldnt Happen")
 
-        vscroll_stripe_size -= self.y_offset
-        vscroll_stripe_tsize:int = vscroll_stripe_size//TILE_SIZE
-        vscroll_stripe_size = vscroll_stripe_tsize*TILE_SIZE
-        if vscroll_stripe_tsize < 0:
+        if vscroll_stripe_size >= _VSCROLL_STRIPE_SIZE_REDUCTION:
+            vscroll_stripe_size -= _VSCROLL_STRIPE_SIZE_REDUCTION
+        if vscroll_stripe_size < 0:
             raise Exception("vscroll_stripe_size must not be negative")
-        if vscroll_stripe_tsize < 2 or True:         # Currently scrolling is deactivated
+        if vscroll_stripe_size < (2*TILE_SIZE+self.y_chin):
             if DIRECTION_UP in scroll_directions or DIRECTION_DOWN in scroll_directions:
                 raise Exception("Vertical Scrolling area is too small to implement scrolling, must specify allowed scrolling directions to not include UP or DOWN")
 
@@ -206,7 +205,6 @@ class DisplaySpec():
             raise Exception("Unsupported Scroll Direction used")
 
         self.vscroll_stripe_size = vscroll_stripe_size
-        self.vscroll_stripe_tsize = vscroll_stripe_tsize
         self.scroll_directions:frozenset[int] = scroll_directions
 
 
@@ -847,7 +845,8 @@ _SC_HEIGHT = const(1)           # Height of Screen
 _SC_THEIGHT = const(2)          # Height of screen in Components
 # Horizontal and Vertical Offset to usable screen inside of real screen
 _SC_XOFFSET = const(3)
-_SC_YOFFSET = const(4)
+_SC_YCHIN = const(4)
+_SC_MAX_AHEAD = const(5)
 
 # This means that the component Grid is centered horizontally, but not vertically.
 
@@ -855,7 +854,6 @@ _SC_YOFFSET = const(4)
 
 _SC_YMAP_NULL_ENTRY = const(_MAX_TILES_HEIGHT*2)
 
-_SC_MAX_AHEAD = const(32)
 class Screen():
     _8BIT_UNSIGNED_INT = _array_get_int_type(8, unsigned=True)
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
@@ -888,15 +886,16 @@ class Screen():
         self.tiled_height:int = tiled_height
 
         x_offset:int = display_spec.x_offset
-        y_offset:int = display_spec.y_offset
+        y_chin:int = display_spec.y_chin
 
 
-        self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(5*4)))
+        self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
         self._screen_info[_SC_WIDTH] = self.display_width
         self._screen_info[_SC_HEIGHT] = self.display_height
         self._screen_info[_SC_THEIGHT] = tiled_height
         self._screen_info[_SC_XOFFSET] = x_offset
-        self._screen_info[_SC_YOFFSET] = y_offset
+        self._screen_info[_SC_YCHIN] = y_chin
+        self._screen_info[_SC_MAX_AHEAD] = display_spec.vscroll_stripe_size
 
 
         # The bitfield is used to detect overlaps in components
@@ -1003,7 +1002,6 @@ class Screen():
 
         sc_info:ptr32 = ptr32(self._screen_info)
         X_OFFSET:int = sc_info[_SC_XOFFSET]
-        Y_OFFSET:int = sc_info[_SC_YOFFSET]
 
 
         # Use Pointers to set value
@@ -1039,7 +1037,7 @@ class Screen():
                     continue
                 cid = id_block_off+id_sub
                 com = self.components[cid]
-                set_com_context(com._font, X_OFFSET+int(com.x), Y_OFFSET+int(com.y), com.width, com.height, 0)
+                set_com_context(com._font, X_OFFSET+int(com.x), int(com.y), com.width, com.height, 0)
                 com_draw = com.draw
                 com_draw(com, com._state, wgl)
                 com.dirty = builtin_false
@@ -1057,12 +1055,11 @@ class Screen():
         #sc_info:ptr32 = ptr32(self._screen_info)
         sc_info:memoryview = self._screen_info
         X_OFFSET:int = sc_info[_SC_XOFFSET]
-        Y_OFFSET:int = sc_info[_SC_YOFFSET]
 
         for n in range(0, 9):
             update_array[n] = 0
         for com in self.components:
-            set_com_context(com._font, X_OFFSET+int(com.x), Y_OFFSET+int(com.y), com.width, com.height, 0)
+            set_com_context(com._font, X_OFFSET+int(com.x), int(com.y), com.width, com.height, 0)
             com_draw = com.draw
             com_draw(com, com._state, wgl)
             com.dirty = builtin_false
@@ -1080,8 +1077,6 @@ class Screen():
         if scroll_direction != DIRECTION_UP and scroll_direction != DIRECTION_DOWN:
             raise Exception("Invalid Direction given")
 
-        if scroll_direction != DIRECTION_UP:
-            raise Exception("Currently Only scrolling up implemented")
 
         vscroll = wgl.display.wgl_vscroll
         #sc_info:ptr32 = ptr32(self._screen_info)
@@ -1090,7 +1085,8 @@ class Screen():
         HEIGHT:int = sc_info[_SC_HEIGHT]
         TILED_HEIGHT:int = sc_info[_SC_THEIGHT]
         X_OFFSET:int = sc_info[_SC_XOFFSET]
-        Y_OFFSET:int = sc_info[_SC_YOFFSET]
+        Y_CHIN:int = sc_info[_SC_YCHIN]
+        MAX_AHEAD:int = sc_info[_SC_MAX_AHEAD]
         bgcolor:int = self.bgcolor
 
         #update_array:ptr16 = ptr16(self.update_array)
@@ -1100,66 +1096,89 @@ class Screen():
         for n in range(0, 9):
             update_array[n] = 0
 
-        scroll_remaining:int = HEIGHT
-        current_draw_line = HEIGHT
 
         #ymap:ptr8 = ptr8(self.com_map_y)
         ymap:memoryview = self.com_map_y
-
+        ahead:int = 0                   # Number of lines drawing is ahead of scrolling
         TICKS_BETWEEN_SCROLL = 3
         scroll_next_pixel = ticks_add(ticks_ms(), TICKS_BETWEEN_SCROLL)
-        
+        scroll_remaining:int = HEIGHT
 
-        ahead:int = 0                   # Number of lines drawing is ahead of scrolling
-        LAST_ROW:int = TILED_HEIGHT-1
-        ypos:int = -16
-        for trow in range(0, TILED_HEIGHT):
-            ypos += TILE_SIZE
-            stripe_size:int = TILE_SIZE
-            if trow == 0 or trow == LAST_ROW:
-                stripe_size += Y_OFFSET
+        if scroll_direction == DIRECTION_UP:
+            current_draw_line:int = HEIGHT
+            FIRST_ROW:int = 0
+            LAST_ROW:int = TILED_HEIGHT-1
+            ypos:int = -16
+            YPOS_CHANGE:int = TILE_SIZE
+            SCROLL_D:int = -1
+            CDL_OFFSET:int = 0
+            SCROLL_RANGE = range(0, TILED_HEIGHT)
+        elif scroll_direction == DIRECTION_DOWN:
+            current_draw_line:int = 0
+            FIRST_ROW:int = TILED_HEIGHT-1
+            LAST_ROW:int = 0
+            ypos:int = (TILED_HEIGHT*16)
+            YPOS_CHANGE:int = 0-TILE_SIZE
+            SCROLL_D:int = 1
+            CDL_OFFSET:int = 0-TILE_SIZE
+            SCROLL_RANGE = range(TILED_HEIGHT-1, -1, -1)
+            if Y_CHIN > 0:
+                fill(bgcolor, 0, current_draw_line-Y_CHIN, WIDTH, Y_CHIN)
+                current_draw_line -= Y_CHIN
+                ahead += Y_CHIN
+
+        for trow in SCROLL_RANGE:
+            ypos += YPOS_CHANGE
 
             # Scroll if there isnt enough buffer space ahead
-            while ahead+stripe_size > _SC_MAX_AHEAD:
+            while ahead+TILE_SIZE > MAX_AHEAD:
                 if int(ticks_diff(scroll_next_pixel, ticks_ms())) > 0:
                     sleep_ms(1)
                     continue
                 scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
-                current_draw_line -= 1
+                current_draw_line += SCROLL_D
                 scroll_remaining -= 1
                 ahead -= 1
-                vscroll(-1)
+                vscroll(0-SCROLL_D)
 
-            fill(bgcolor, 0, current_draw_line, WIDTH, stripe_size)
-            if trow == 0:
-                current_draw_line += Y_OFFSET
+            fill(bgcolor, 0, current_draw_line+CDL_OFFSET, WIDTH, TILE_SIZE)
 
             trow_x_2:int = trow<<1
-            row_offset = ymap[trow_x_2]<<8+ymap[trow_x_2+1]
+            row_offset = (ymap[trow_x_2]<<8)+ymap[trow_x_2+1]
             while ymap[row_offset] != 0:
                 com_id:int = ymap[row_offset]
                 row_offset += 1
-                com = self.components[com_id]
+                com = self.components[com_id-1]
                 com_draw = com.draw
                 yshift:int = int(com.y)-ypos
-                set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line, com.width, TILE_SIZE, yshift)
+                set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line+CDL_OFFSET, com.width, TILE_SIZE, yshift)
                 com_draw(com, com._state, wgl)
                 com.dirty = builtin_false
                 while ahead > 0 and int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
                     scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
-                    current_draw_line -= 1
+                    current_draw_line += SCROLL_D
                     scroll_remaining -= 1
                     ahead -= 1
-                    vscroll(-1)
-            current_draw_line += TILE_SIZE
-            ahead += stripe_size
-        while ahead > 0 and scroll_remaining > 0:
-            if int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
+                    vscroll(0-SCROLL_D)
+            current_draw_line += YPOS_CHANGE
+            ahead += TILE_SIZE
+        if scroll_direction == DIRECTION_UP and Y_CHIN > 0:
+            while ahead+Y_CHIN+1 > MAX_AHEAD:
+                if int(ticks_diff(scroll_next_pixel, ticks_ms())) > 0:
+                    sleep_ms(1)
+                    continue
                 scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
-                current_draw_line -= 1
+                current_draw_line += SCROLL_D
                 scroll_remaining -= 1
                 ahead -= 1
-                vscroll(-1)
+                vscroll(0-SCROLL_D)
+            fill(bgcolor, 0, current_draw_line, WIDTH, Y_CHIN)
+            ahead += Y_CHIN
+        while scroll_remaining > 0:
+            if int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
+                scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
+                scroll_remaining -= 1
+                vscroll(0-SCROLL_D)
             else:
                 sleep_ms(1)
 
@@ -1181,6 +1200,16 @@ class Screen():
 
 
 
+def FillComponent(x:int, y:int, width:int, height:int, color:int):
+    def _draw_function(com, state, wgl):
+        wgl.fill(color, 0, 0, width, height)
+        wgl.draw_line(color^0xAAAA, 3, 0, 0, width-1, height-1)
+    return Component(x, y, width, height, _draw_function)
+
+def TextComponent(x:int, y:int, width:int, height:int, s:str, color:int, bgcolor:int):
+    def _draw_function(com, state, wgl):
+        wgl.draw_string(color, bgcolor, s, 0, 0)
+    return Component(x, y, width, height, _draw_function)
 
 
 
@@ -1221,17 +1250,36 @@ class WatchGraphics():
         self._window_info[_WGWI_WIDTH] = self.width
         self._window_info[_WGWI_HEIGHT] = self.height
         self._window_info[_WGWI_XPOS] = 0
-        self._window_info[_WGWI_YPOS] = 0
-        self._window_info[_WGWI_YSHIFT] = 0
+        self._window_info[_WGWI_YPOS] = 0+ARROFF
+        self._window_info[_WGWI_YSHIFT] = 0+ARROFF
 
 
         # Init Crop Streamers used for Blitting images that dont fit in their components
         self._crop_v_stream:VerticalCropStream = VerticalCropStream(DummyImageStream(1, 1), 0, 1)
         self._crop_h_stream:HorizontalCropStream = HorizontalCropStream(DummyImageStream(1, 1), 0, 1)
 
+
         # Call garbage collection to clean up potential temporary allocated objects
         if gc_collect:
             _gc_collect()
+
+
+
+    def _create_test_screen(self, v=0):
+        colors = [0xf800, 0xfba0, 0xffc0, 0xff20,   0xbfe0, 0x67e0, 0x07e2, 0x07f2,   0x07fd, 0x055f, 0x033f, 0x0ff,   0x281f, 0x781f, 0xe01f, 0xf814]
+        components = []
+        if v == 0:
+            SLICES = 11
+            TOFF = 0
+        elif v == 1:
+            SLICES = 10
+            TOFF = -16
+        for i in range(SLICES):
+            components.append(FillComponent(i*16, i*16, 16, 80, colors[i]))
+        for i in range(7):
+            components.append(TextComponent(176+TOFF, i*32, 64, 32, "TEST", colors[i], colors[i+8]))
+        return Screen(0, self, components)
+
 
     def _set_font(self, font):
         self._font._set_font(font)
@@ -1242,8 +1290,8 @@ class WatchGraphics():
         self._window_info[_WGWI_WIDTH] = self.width
         self._window_info[_WGWI_HEIGHT] = self.height
         self._window_info[_WGWI_XPOS] = x
-        self._window_info[_WGWI_YPOS] = y
-        self._window_info[_WGWI_YSHIFT] = shift_y
+        self._window_info[_WGWI_YPOS] = y+ARROFF
+        self._window_info[_WGWI_YSHIFT] = shift_y+ARROFF
 
     def _set_bgcolor(self, bgcolor:int):
         self.bgcolor = bgcolor
@@ -1285,7 +1333,7 @@ class WatchGraphics():
     def blit(self, image, x:int, y:int):
         window_info:ptr32 = ptr32(self._window_info)
 
-        y += window_info[_WGWI_YSHIFT]
+        y += window_info[_WGWI_YSHIFT]-ARROFF
         window_width:int = window_info[_WGWI_WIDTH]
         window_height:int = window_info[_WGWI_HEIGHT]
 
@@ -1317,7 +1365,7 @@ class WatchGraphics():
             return
 
         if reduce_by_lines <= 0 and reduce_by_cols <= 0:
-            self.display.wgl_blit(image, x, y)
+            self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]-ARROFF+y)
             return
 
         if reduce_by_lines > 0:
@@ -1330,7 +1378,7 @@ class WatchGraphics():
             croppedx._setup(image, skip_cols, width)
             image = croppedx
 
-        self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]+y)
+        self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]-ARROFF+y)
         image.reset()
 
 
@@ -1343,7 +1391,7 @@ class WatchGraphics():
     def fill(self, color:int, x:int, y:int, width:int, height:int):
         window_info:ptr32 = ptr32(self._window_info)
 
-        y += window_info[_WGWI_YSHIFT]
+        y += window_info[_WGWI_YSHIFT]-ARROFF
         window_height:int = window_info[_WGWI_HEIGHT]
         window_width:int = window_info[_WGWI_WIDTH]
         if y < 0:
@@ -1360,7 +1408,7 @@ class WatchGraphics():
             height += (window_height-1)-max_y
         if width <= 0 or height <= 0:
             return
-        self.display.wgl_fill(color, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]+y, width, height)
+        self.display.wgl_fill(color, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]-ARROFF+y, width, height)
 
 
     # Draw a line, with a given thickness and color, between the start and endpoints,
@@ -1408,7 +1456,7 @@ class WatchGraphics():
         window_info:ptr32 = ptr32(self._window_info)
 
         # Shift content by y, do not shift before, else it would be shifted twice, when using simple fill operations
-        yshift:int = window_info[_WGWI_YSHIFT]
+        yshift:int = window_info[_WGWI_YSHIFT]-ARROFF
         y0 += yshift
         y1 += yshift
 
@@ -1436,7 +1484,7 @@ class WatchGraphics():
 
 
         wxpos:int = window_info[_WGWI_XPOS]
-        wypos:int = window_info[_WGWI_YPOS]
+        wypos:int = window_info[_WGWI_YPOS]-ARROFF
 
         while True:
             # Cropping the current point so it doesnt overdraw
@@ -1477,17 +1525,17 @@ class WatchGraphics():
                 if rwidth > fill_w:
                     fill_w = rwidth
             elif y_offset == 0 and rheight == fill_h:
-                if x_offset < 0:
-                    fill_x += x_offset
-                    fill_w -= x_offset
-                else:
-                    fill_w += x_offset
+                if rx0 < fill_x:
+                    fill_w += fill_x-rx0
+                    fill_x = rx0
+                elif (rx0+rwidth) > (fill_x+fill_w):
+                    fill_w += (rx0+rwidth)-(fill_x+fill_w)
             elif x_offset == 0 and rwidth == fill_w:
-                if y_offset < 0:
-                    fill_y += y_offset
-                    fill_h -= y_offset
-                else:
-                    fill_h += y_offset
+                if ry0 < fill_y:
+                    fill_h += fill_y-ry0
+                    fill_y = ry0
+                elif (ry0+rheight) > (fill_y+fill_h):
+                    fill_h += (ry0+rheight)-(fill_y+fill_h)
             else:
                 if fill_x != -1:
                     wgl_fill(color, wxpos+fill_x, wypos+fill_y, fill_w, fill_h)

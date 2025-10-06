@@ -172,14 +172,17 @@ class ST7789(object):
         write_cmd(_RAMWR)
 
 
-    def wgl_vscoll(self, pixels:int):
+    def wgl_vscroll(self, pixels:int):
         vsc_line:int = self.vsc_line
+        #ovsc_line = vsc_line
         vsc_line += pixels
         while vsc_line < 0:
             vsc_line += _MAX_BUFFER_Y
         while vsc_line >= _MAX_BUFFER_Y:
             vsc_line -= _MAX_BUFFER_Y
         self.vsc_line = vsc_line
+
+        #print("VSCROLL: "+str(ovsc_line)+" => "+str(vsc_line))
 
         vscsad = self.vscsad
         vscsad[0] = (vsc_line>>8)&0xFF
@@ -235,7 +238,7 @@ class ST7789(object):
 
             set_window(x, y, width, height)
 
-            #print("FILL: ", x, y, width, height)
+            #print("FILL "+hex(color)+": ", x, y, width, height)
 
             quick_start()
 
