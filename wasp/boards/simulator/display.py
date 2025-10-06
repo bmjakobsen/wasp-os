@@ -12,6 +12,7 @@ import sdl2.ext
 import numpy as np
 from PIL import Image
 import wasp
+import os
 
 DISPOFF = 0x28
 DISPON = 0x29
@@ -19,25 +20,67 @@ CASET = 0x2a
 RASET = 0x2b
 RAMWR = 0x2c
 
+VSCRDEF = 0x33
+VSCSAD = 0x37
+
 WIDTH = 240
 HEIGHT = 240
+XHEIGHT = 320
 
 SKIN = {
     'fname' : 'res/simulator_skin.png',
-    'size' : (337, 427),
+    'size' : (337+63+240, 427),
     'button_profile' : 9,
-    'offset' : (53, 93)
+    'offset' : (53, 93),
+    'roffset': (400, 50)
 }
+
+
+
+def window_redraw(vsc_line:int):
+    global windowsurface
+    if vsc_line is None:
+        vsc_line = 0
+    if vsc_line+HEIGHT <= XHEIGHT:
+        sdl2.SDL_BlitSurface(
+            windowsurface,
+            sdl2.SDL_Rect(SKIN['radjust'][0], SKIN['radjust'][1]+vsc_line, WIDTH, HEIGHT),
+            windowsurface,
+            sdl2.SDL_Rect(SKIN['adjust'][0], SKIN['adjust'][1], WIDTH, HEIGHT)
+        )
+        return
+    xl = (vsc_line+HEIGHT) - XHEIGHT
+    sdl2.SDL_BlitSurface(
+        windowsurface,
+        sdl2.SDL_Rect(SKIN['radjust'][0], SKIN['radjust'][1]+vsc_line, WIDTH, HEIGHT-xl),
+        windowsurface,
+        sdl2.SDL_Rect(SKIN['adjust'][0], SKIN['adjust'][1], WIDTH, HEIGHT-xl)
+    )
+    sdl2.SDL_BlitSurface(
+        windowsurface,
+        sdl2.SDL_Rect(SKIN['radjust'][0], SKIN['radjust'][1], WIDTH, xl),
+        windowsurface,
+        sdl2.SDL_Rect(SKIN['adjust'][0], SKIN['adjust'][1]+(HEIGHT-xl), WIDTH, xl)
+    )
+
+def window_refresh(vsc_line:int):
+    global window
+    window_redraw(vsc_line)
+    window.refresh()
+
+
 
 class ST7789Sim(object):
     def __init__(self):
-
         self.x = 0
         self.y = 0
         self.colclip = [0, WIDTH-1]
         self.rowclip = [0, HEIGHT-1]
         self.cmd = 0
         self.mute = False
+
+        self.vsc_line = None
+        self.BUFFER_HEIGHT = HEIGHT
 
     def write(self, data):
         # Converting data to a memoryview ensures we act more like spi.write()
@@ -54,22 +97,38 @@ class ST7789Sim(object):
                 self.mute = True
             elif cmd == DISPON:
                 self.mute = False
-                window.refresh()
+                window_refresh(self.vsc_line)
             else:
                 self.cmd = data[0]
 
+        elif self.cmd == VSCRDEF:
+            assert(data[0] == 0 and data[1] == 0 and data[4] == 0 and data[5] == 0)
+            assert( (data[2]<<8)+(data[3]&0xFF) == XHEIGHT )
+            self.vsc_line = 0
+            self.BUFFER_HEIGHT = XHEIGHT
+            window_refresh(self.vsc_line)
+
+        elif self.cmd == VSCSAD:
+            # Ensure that a VSCRDEF has been ran before
+            assert(self.vsc_line is not None)
+            vsc_line = (data[0]<<8)+data[1]&0xFF
+            # Assert than the new vsc_line is valid
+            assert(vsc_line >= 0 and vsc_line < XHEIGHT)
+            self.vsc_line = vsc_line
+            window_refresh(self.vsc_line)
+
         elif self.cmd == CASET:
             self.colclip[0] = (data[0] << 8) + data[1]
-            assert(self.colclip[0] >= 0 and self.colclip[0] <= 240)
+            assert(self.colclip[0] >= 0 and self.colclip[0] < 240)
             self.colclip[1] = (data[2] << 8) + data[3]
-            assert(self.colclip[1] >= 0 and self.colclip[1] <= 240)
+            assert(self.colclip[1] >= 0 and self.colclip[1] < 240)
             self.x = self.colclip[0]
 
         elif self.cmd == RASET:
             self.rowclip[0] = (data[0] << 8) + data[1]
-            assert(self.rowclip[0] >= 0 and self.rowclip[0] <= 240)
+            assert(self.rowclip[0] >= 0 and self.rowclip[0] < self.BUFFER_HEIGHT)
             self.rowclip[1] = (data[2] << 8) + data[3]
-            assert(self.rowclip[1] >= 0 and self.rowclip[1] <= 240)
+            assert(self.rowclip[1] >= 0 and self.rowclip[1] < self.BUFFER_HEIGHT)
             self.y = self.rowclip[0]
 
         elif self.cmd == RAMWR:
@@ -92,9 +151,10 @@ class ST7789Sim(object):
                          ((rgb & 0x07e0) << 5) +
                          ((rgb & 0x001f) << 3))
             
-                pv_x = self.x + SKIN['adjust'][0]
-                pv_y = self.y + SKIN['adjust'][1]
-                pixelview[pv_x][pv_y] = pixel
+
+                pv_x2 = self.x + SKIN['radjust'][0]
+                pv_y2 = self.y + SKIN['radjust'][1]
+                pixelview[pv_x2][pv_y2] = pixel
 
                 self.x += 1
                 if self.x > self.colclip[1]:
@@ -106,7 +166,7 @@ class ST7789Sim(object):
             # Forcibly release the surface to ensure it is unlocked
             del pixelview
             if not self.mute:
-                window.refresh()
+                window_refresh(self.vsc_line)
 
 class CST816SSim():
     def __init__(self):
@@ -223,17 +283,23 @@ SKIN['window'] = (SKIN['size'][0] + SKIN['left_pad'] + SKIN['right_pad'],
                   SKIN['size'][1] + SKIN['top_pad'] + SKIN['bottom_pad'])
 SKIN['adjust'] = (SKIN['offset'][0] + SKIN['left_pad'],
                   SKIN['offset'][1] + SKIN['top_pad'])
+SKIN['radjust'] = (SKIN['roffset'][0], SKIN['roffset'][1])
 
 sdl2.ext.init()
 window = sdl2.ext.Window("ST7789", size=SKIN['window'])
+
+
+
 window.show()
 windowsurface = window.get_surface()
 sdl2.ext.fill(windowsurface, (0xff, 0xff, 0xff))
+sdl2.ext.fill(windowsurface, (0,0,0), (SKIN['roffset'][0], SKIN['roffset'][1], WIDTH, XHEIGHT))
 skin = sdl2.ext.load_image(SKIN['fname'])
 sdl2.SDL_BlitSurface(skin, None, windowsurface, sdl2.SDL_Rect(
         SKIN['left_pad'], SKIN['top_pad'], SKIN['size'][0], SKIN['size'][1]))
 sdl2.SDL_FreeSurface(skin)
-window.refresh()
+window_refresh(0)
+
 
 spi_st7789_sim = ST7789Sim()
 i2c_cst816s_sim = CST816SSim()

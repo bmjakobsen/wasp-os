@@ -77,6 +77,10 @@ class ST7789(object):
         self.vscsad[0] = 0
         self.vscsad[1] = 0
 
+        # Testing split rendering
+        #self.vscsad[1] = 240
+        #self.vsc_line = 240
+
 
         for cmd in (
             (_COLMOD,   b'\x05'), # MCU will send 16-bit RGB565
@@ -208,6 +212,7 @@ class ST7789(object):
         exl:int = 0
         if yp > _MAX_BUFFER_Y:
             exl = yp-_MAX_BUFFER_Y
+            split_mode = True
         height -= exl
 
 
