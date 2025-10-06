@@ -1621,18 +1621,30 @@ class WatchGraphics():
             self.blit(font, x, y)
             x += cw
 
-    def draw_string_a(self, color:int, bgcolor:int, s:str, x:int, y:int, align:int):
+    def draw_string_a(self, color:int, bgcolor:int, s:str, x:int, y:int, width:int, align:int):
         (rw, rh) = self.string_bounding_box(s)
-        rwidth:int = int(rw)
-        if align == ALIGNMENT_CENTER:
-            offset:int = rwidth//2
-            self.draw_string(color, bgcolor, s, x-offset, y)
-        elif align == ALIGNMENT_LEFT:
+        if rw >= width:
             self.draw_string(color, bgcolor, s, x, y)
+            return
+        lpad:int = 0
+        rpad:int = 0
+
+        if align == ALIGNMENT_CENTER:
+            lpad = (width-rw)//2
+            rpad = width-rw-lpad
+        elif align == ALIGNMENT_LEFT:
+            lpad = 0
+            rpad = width-rw
         elif align == ALIGNMENT_RIGHT:
-            self.draw_string(color, bgcolor, s, x-rwidth, y)
+            lpad = width-rw
+            rpad = 0
         else:
             raise Exception("Shouldnt Happen")
+        if lpad > 0:
+            self.fill(bgcolor, x, y, lpad, rh)
+        self.draw_string(color, bgcolor, s, x+lpad, y)
+        if rpad > 0:
+            self.fill(bgcolor, x+lpad+rw, y, rpad, rh)
 
 
 

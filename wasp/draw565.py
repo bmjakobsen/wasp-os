@@ -10,7 +10,7 @@ import fonts.sans24
 import math
 import micropython
 
-from watchgl import WatchGraphics, WaspRle1ImageStream, WaspRle2ImageStream
+from watchgl import WatchGraphics, WaspRle1ImageStream, WaspRle2ImageStream, ALIGNMENT_CENTER, ALIGNMENT_RIGHT
 
 from micropython import const
 
@@ -165,23 +165,12 @@ class Draw565(object):
         bg = self._bg
 
 
-        rx = 0
-        if width:
-            (w, h) = self._wgl.string_bounding_box(s)
-            if right:
-                leftpad = width - w
-                rightpad = 0
-            else:
-                leftpad = (width - w) // 2
-                rightpad = width - w - leftpad
-            self.fill(bg, x, y, leftpad, h)
-            x += leftpad
-            rx = x+w
+        if width is None:
+            self._wgl.draw_string(fg, bg, s, x, y)
+            return
+        align = ALIGNMENT_RIGHT if right else ALIGNMENT_CENTER
+        self._wgl.draw_string_a(fg, bg, s, x, y, width, align)
 
-        self._wgl.draw_string(fg, bg, s, x, y)
-
-        if width:
-            self.fill(bg, rx, y, rightpad, h)
 
     def bounding_box(self, s):
         """Return the bounding box of a string.
@@ -191,7 +180,7 @@ class Draw565(object):
         """
         if s is None:
             s = "   "
-        return self._wgl.string_bounding_box(s)
+        return self._wgl_bak.string_bounding_box(s)
 
     def wrap(self, s, width):
         """Chunk a string so it can rendered within a specified width.
@@ -212,7 +201,7 @@ class Draw565(object):
         :param width: Width to wrap the text into
         :returns:     List of chunk boundaries
         """
-        font = self._wgl._font
+        font = self._wgl_bak._font
         max = len(s)
         chunks = [ 0, ]
         end = 0

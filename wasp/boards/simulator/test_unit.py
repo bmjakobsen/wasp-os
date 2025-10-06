@@ -45,6 +45,9 @@ def test_darken(draw):
     assert draw.darken(0b10000_100100_10010, 0b10001) == 0b00000_000010_00001
 
 def test_font_height(draw):
+    wgl_bak = draw._wgl
+    draw._wgl = draw._wgl_bak
+
     assert 24 == draw.bounding_box('A')[1]
 
     draw.set_font(fonts.sans28)
@@ -53,7 +56,13 @@ def test_font_height(draw):
     draw.set_font(fonts.sans36)
     assert 36 == draw.bounding_box('0')[1]
 
+    draw._wgl = wgl_bak
+
 def test_font_width(draw):
+    wgl_bak = draw._wgl
+    draw._wgl = draw._wgl_bak
+
+
     for f in (fonts.sans24, fonts.sans28, fonts.sans36):
         draw.set_font(f)
 
@@ -61,6 +70,8 @@ def test_font_width(draw):
 
         if f.max_ch() >= 90:
             assert draw.bounding_box('IIII')[0] < draw.bounding_box('WWWW')[0]
+
+    draw._wgl = wgl_bak
 
 @pytest.mark.parametrize("input,expected", (
     ('abc', [0, 3]),
