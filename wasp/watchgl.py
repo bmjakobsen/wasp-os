@@ -152,7 +152,6 @@ class ImageStream(Protocol):
         return ""
 
 _DUMMY_BUFFER:memoryview = memoryview(bytearray(16))
-@micropython.viper
 def _skip_pixels(s, n:int):
     global _DUMMY_BUFFER
     s.read_pixels(False, _DUMMY_BUFFER, n, 0)
@@ -266,9 +265,9 @@ class VerticalCropStream():
         assert(self._instream.get_remaining() >= self._pixels_n)
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
-    @micropython.viper
     def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
-        state:ptr32 = ptr32(self._extra_state)
+        #state:ptr32 = ptr32(self._extra_state)
+        state:memoryview = self._extra_state
         remaining:int = state[_SX_REMAINING]
         if n > remaining:
             n = remaining
@@ -379,7 +378,8 @@ _PALETTE4_INITALIZER = [0, 0x4a69, 0x7bef, 0xFFFF]
 
 
 
-@micropython.viper
+#Temporarily Non-Native
+#@micropython.viper
 def _convert_color_to_format(format:int, color:int) -> int:
     color &= 0xFFFF
     if format == COLORFORMAT_RGB565:
@@ -653,7 +653,7 @@ def _clut8_rgb565(color_format:int, i: int) -> int:
         gr5 = gr6 >> 1
         rgb565 = (gr5 << 11) + (gr6 << 5) + gr5
 
-    return _convert_color_to_format(color_format, rgb565)
+    return int(_convert_color_to_format(color_format, rgb565))
 
 
 _R2IS_COLOR = const(3)
@@ -769,7 +769,7 @@ class WaspRle2ImageStream():
                 if rlen == 0:
                     index += 1
                     fbyte = raw_data[index]
-                    palette[nxcolor] = clut8_rgb565(self._color_format, fbyte)&0xFFFF
+                    palette[nxcolor] = int(clut8_rgb565(self._color_format, fbyte))&0xFFFF
                     nxcolor += 1
                     if nxcolor > 3:
                         nxcolor = 1
@@ -1046,18 +1046,18 @@ class Screen():
         update_array[0] = 0
 
 
-    @micropython.viper
     def _draw_full(self):
         builtin_false = builtins.bool(False)
         self._full_draw = builtin_false
         wgl = self._wgl
-        update_array:ptr16 = ptr16(self.update_array)
+        #update_array:ptr16 = ptr16(self.update_array)
+        update_array:memoryview = self.update_array
         set_com_context = wgl._set_component_context
 
-        sc_info:ptr32 = ptr32(self._screen_info)
+        #sc_info:ptr32 = ptr32(self._screen_info)
+        sc_info:memoryview = self._screen_info
         X_OFFSET:int = sc_info[_SC_XOFFSET]
         Y_OFFSET:int = sc_info[_SC_YOFFSET]
-
 
         for n in range(0, 9):
             update_array[n] = 0
@@ -1067,7 +1067,6 @@ class Screen():
             com_draw(com, com._state, wgl)
             com.dirty = builtin_false
 
-    @micropython.viper
     def _draw_scroll(self, scroll_direction:int):
         builtin_false = builtins.bool(False)
         wgl = self._wgl
@@ -1085,7 +1084,8 @@ class Screen():
             raise Exception("Currently Only scrolling up implemented")
 
         vscroll = wgl.display.wgl_vscroll
-        sc_info:ptr32 = ptr32(self._screen_info)
+        #sc_info:ptr32 = ptr32(self._screen_info)
+        sc_info:memoryview = self._screen_info
         WIDTH:int = sc_info[_SC_WIDTH]
         HEIGHT:int = sc_info[_SC_HEIGHT]
         TILED_HEIGHT:int = sc_info[_SC_THEIGHT]
@@ -1093,7 +1093,8 @@ class Screen():
         Y_OFFSET:int = sc_info[_SC_YOFFSET]
         bgcolor:int = self.bgcolor
 
-        update_array:ptr16 = ptr16(self.update_array)
+        #update_array:ptr16 = ptr16(self.update_array)
+        update_array:memoryview = self.update_array
         set_com_context = wgl._set_component_context
         
         for n in range(0, 9):
@@ -1102,7 +1103,8 @@ class Screen():
         scroll_remaining:int = HEIGHT
         current_draw_line = HEIGHT
 
-        ymap:ptr8 = ptr8(self.com_map_y)
+        #ymap:ptr8 = ptr8(self.com_map_y)
+        ymap:memoryview = self.com_map_y
 
         TICKS_BETWEEN_SCROLL = 3
         scroll_next_pixel = ticks_add(ticks_ms(), TICKS_BETWEEN_SCROLL)
@@ -1119,7 +1121,7 @@ class Screen():
 
             # Scroll if there isnt enough buffer space ahead
             while ahead+stripe_size > _SC_MAX_AHEAD:
-                if ticks_diff(scroll_next_pixel, ticks_ms()) > 0:
+                if int(ticks_diff(scroll_next_pixel, ticks_ms())) > 0:
                     sleep_ms(1)
                     continue
                 scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
@@ -1143,7 +1145,7 @@ class Screen():
                 set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line, com.width, TILE_SIZE, yshift)
                 com_draw(com, com._state, wgl)
                 com.dirty = builtin_false
-                while ahead > 0 and ticks_diff(scroll_next_pixel, ticks_ms()) < 0:
+                while ahead > 0 and int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
                     scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
                     current_draw_line -= 1
                     scroll_remaining -= 1
@@ -1152,7 +1154,7 @@ class Screen():
             current_draw_line += TILE_SIZE
             ahead += stripe_size
         while ahead > 0 and scroll_remaining > 0:
-            if ticks_diff(scroll_next_pixel, ticks_ms()) < 0:
+            if int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
                 scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
                 current_draw_line -= 1
                 scroll_remaining -= 1
@@ -1301,7 +1303,6 @@ class WatchGraphics():
             height -= stripped_lines
         if height <= 0:
             return
-
         skip_cols:int = 0
         if x < 0:
             skip_cols -= x
@@ -1334,7 +1335,6 @@ class WatchGraphics():
 
 
     # Fill on screen but ignore current window
-    @micropython.viper
     def _fill_uw(self, color:int, x:int, y:int, width:int, height:int):
         self.display.wgl_fill(color, x, y, width, height)
 
@@ -1513,7 +1513,6 @@ class WatchGraphics():
 
 
     # Draw a line using polar coordinates
-    @micropython.native
     def draw_line_polar(self, color:int, width:int, x:int, y:int, theta:int, r0:int, r1:int):
         theta2:float = theta*_C_TO_RADIANS
         xdelta:float = math.sin(theta2)
@@ -1543,7 +1542,8 @@ class WatchGraphics():
 
 
     # Draw string to the screen at position, sadly cant be viper as it doesnt
-    @micropython.native
+    #Temporarily Non-Native
+    #@micropython.native
     def draw_string(self, color:int, bgcolor:int, s:str, x:int, y:int):
         window_width:int = self.width
         window_height:int = self.height

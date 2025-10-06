@@ -15,6 +15,7 @@ import micropython
 
 from micropython import const
 from time import sleep_ms
+import builtins
 
 # register definitions
 _SWRESET            = const(0x01)
@@ -31,6 +32,11 @@ _RAMWR              = const(0x2c)
 _COLMOD             = const(0x3a)
 _MADCTL             = const(0x36)
 
+_VSCRDEF            = const(0x33)
+_VSCSAD             = const(0x37)
+
+_MAX_BUFFER_Y = const(320)
+
 class ST7789(object):
     """Sitronix ST7789 display driver
 
@@ -46,7 +52,19 @@ class ST7789(object):
         self.width = width
         self.height = height
         self.linebuffer = memoryview(bytearray(2 * width))
-        self.window = memoryview(bytearray(4))
+        command_buffer = memoryview(bytearray(4+6+2))
+        self.window = command_buffer[0:4]
+        self.vscsad = command_buffer[4:6]
+        self.vscrdef = command_buffer[6:12]
+        
+        self.vscrdef[0] = 0
+        self.vscrdef[1] = 0
+        self.vscrdef[2] = (_MAX_BUFFER_Y>>8)&0xFF
+        self.vscrdef[3] = _MAX_BUFFER_Y&0xFF
+        self.vscrdef[4] = 0
+        self.vscrdef[5] = 0
+
+        self.vsc_line:int = 0
         self.init_display()
 
     def init_display(self):
@@ -56,17 +74,23 @@ class ST7789(object):
         self.write_cmd(_SLPOUT)
         sleep_ms(10)
 
+        self.vscsad[0] = 0
+        self.vscsad[1] = 0
+
+
         for cmd in (
             (_COLMOD,   b'\x05'), # MCU will send 16-bit RGB565
             (_MADCTL,   b'\x00'), # Left to right, top to bottom
             #(_INVOFF,   None), # Results in odd palette
             (_INVON,   None),
             (_NORON,   None),
+            (_VSCRDEF,   self.vscrdef),
+            (_VSCSAD,    self.vscsad)
         ):
             self.write_cmd(cmd[0])
-            if cmd[1]:
+            if not cmd[1] is None:
                 self.write_data(cmd[1])
-        self.fill(0)
+        self.wgl_fill(0, 0, 0, self.width, self.height)
         self.write_cmd(_DISPON)
 
         # From the point we sent the SLPOUT there must be a
@@ -143,113 +167,150 @@ class ST7789(object):
 
         write_cmd(_RAMWR)
 
-    def rawblit(self, buf, x, y, width, height):
-        """Blit raw pixels to the display.
 
-        :param buf: Pixel buffer
-        :param x:  X coordinate of the left-most pixels of the rectangle
-        :param y:  Y coordinate of the top-most pixels of the rectangle
-        :param w:  Width of the rectangle, defaults to None (which means select
-                   the right-most pixel of the display)
-        :param h:  Height of the rectangle, defaults to None (which means select
-                   the bottom-most pixel of the display)
-        """
-        self.set_window(x, y, width, height)
-        self.write_data(buf)
+    def wgl_vscoll(self, pixels:int):
+        vsc_line:int = self.vsc_line
+        vsc_line += pixels
+        while vsc_line < 0:
+            vsc_line += _MAX_BUFFER_Y
+        while vsc_line >= _MAX_BUFFER_Y:
+            vsc_line -= _MAX_BUFFER_Y
+        self.vsc_line = vsc_line
 
-    def fill(self, bg, x=0, y=0, w=None, h=None):
-        """Draw a solid colour rectangle.
+        vscsad = self.vscsad
+        vscsad[0] = (vsc_line>>8)&0xFF
+        vscsad[1] = vsc_line&0xFF
+        self.write_cmd(_VSCSAD)
+        self.write_data(vscsad)
 
-        If no arguments a provided the whole display will be filled with
-        the background colour (typically black).
-
-        :param bg: Background colour (in RGB565 format)
-        :param x:  X coordinate of the left-most pixels of the rectangle
-        :param y:  Y coordinate of the top-most pixels of the rectangle
-        :param w:  Width of the rectangle, defaults to None (which means select
-                   the right-most pixel of the display)
-        :param h:  Height of the rectangle, defaults to None (which means select
-                   the bottom-most pixel of the display)
-        """
-        if not w:
-            w = self.width - x
-        if not h:
-            h = self.height - y
-        self.set_window(x, y, w, h)
-
-        # Populate the line buffer
-        buf = self.linebuffer[0:2*w]
-        for xi in range(0, 2*w, 2):
-            buf[xi] = bg >> 8
-            buf[xi+1] = bg & 0xff
-
-        write_data = self.write_data
-        # Do the fill
-        for yi in range(h):
-            write_data(buf)
-
-
-
-    @micropython.viper
+    #Temporarily Non-Native
+    #@micropython.viper
     def wgl_fill(self, color:int, x:int, y:int, width:int, height:int):
         lbuffer = self.linebuffer
-        buf:ptr8 = ptr8(lbuffer)
+        #buf:ptr8 = ptr8(lbuffer)
+        buf:memoryview = lbuffer
         scwidth:int = int(self.width)
-        pixels:int = width*height
 
-        full_rows:int = pixels//scwidth
-        last_row:int = pixels%scwidth
+        # Correct y variable
+        y += int(self.vsc_line)
+        while y < 0:
+            y += _MAX_BUFFER_Y
+        while y >= _MAX_BUFFER_Y:
+            y -= _MAX_BUFFER_Y
 
         color &= 0xFFFF
         for xi in range(0, 2*scwidth, 2):
             buf[xi] = color >> 8
             buf[xi+1] = color & 0xff
 
-        self.set_window(x, y, width, height)
+        yp:int = y+height
+        split_mode = False
+        exl:int = 0
+        if yp > _MAX_BUFFER_Y:
+            exl = yp-_MAX_BUFFER_Y
+        height -= exl
 
-        #print("FILL: ", x, y, width, height)
 
-        self.quick_start()
+        quick_start = self.quick_start
+        quick_end = self.quick_end
         write_data = self.quick_write
+        set_window = self.set_window
+        PyInt = builtins.int
+
+        for sec in range(2):
+            if sec == 1:
+                if not split_mode:
+                    break
+                y = 0
+                height = exl
+
+            pixels:int = width*height
+            full_rows:int = pixels//scwidth
+            last_row:int = pixels%scwidth
+
+            set_window(x, y, width, height)
+
+            #print("FILL: ", x, y, width, height)
+
+            quick_start()
 
 
-        # Do the fill
-        n:int = 0
-        while n < full_rows:
-            n += 1
-            write_data(lbuffer)
-        if last_row > 0:
-            last_row <<= 1      # Last row x 2 to get number of bytes instead of number of pixels
-            write_data(lbuffer[:last_row])
-        self.quick_end()
+            # Do the fill
+            n:int = 0
+            while n < full_rows:
+                n += 1
+                write_data(lbuffer)
+            if last_row > 0:
+                last_row <<= 1      # Last row x 2 to get number of bytes instead of number of pixels
+                write_data(lbuffer[PyInt(0):PyInt(last_row)])
+            quick_end()
 
-    @micropython.viper
+    #Temporarily Non-Native
+    #@micropython.viper
     def wgl_blit(self, image, x:int, y:int):
         # Populate the line buffer
         lbuffer = self.linebuffer
         scwidth:int = int(self.width)
 
-        #print("BLIT:  X:"+str(x)+", Y:"+str(y)+", W:"+str(image.width)+", H:"+str(image.height)+"                    "+image.info())
-        self.set_window(x, y, image.width, image.height)
+        # Correct y variable
+        y += int(self.vsc_line)
+        while y < 0:
+            y += _MAX_BUFFER_Y
+        while y >= _MAX_BUFFER_Y:
+            y -= _MAX_BUFFER_Y
+
+        width:int = int(image.width)
+        height:int = int(image.height)
+        yp:int = y+height
+        split_mode = False
+        exl:int = 0
+        if yp > _MAX_BUFFER_Y:
+            exl = yp-_MAX_BUFFER_Y
+            split_mode = True
+        height -= exl
 
 
-        read_pixels = image.read_pixels
-        n:int = 0
-        self.quick_start()
+        quick_start = self.quick_start
+        quick_end = self.quick_end
         write_data = self.quick_write
-        while True:
-            # Read up to scwidth pixels into the buffer, method returns the number of pixels written
-            n = int(read_pixels(True, lbuffer, scwidth, 0))
-            #print("Pixels Read:", n, "  ", lbuffer[:2*n].hex(sep=' '))
-            # Number lower than the requested number means end of stream
-            if n < scwidth:
-                if n > 0:
-                    n <<= 1         # Number of gotten pixels x2 to get number of gotten bytes
-                    write_data(lbuffer[:n])
-                break
-            else:
-                write_data(lbuffer)
-        self.quick_end()
+        set_window = self.set_window
+        read_pixels = image.read_pixels
+        PyInt = builtins.int
+
+        for sec in range(2):
+            if sec == 1:
+                if not split_mode:
+                    break
+                y = 0
+                height = exl
+
+            #print("BLIT:  X:"+str(x)+", Y:"+str(y)+", W:"+str(width)+", H:"+str(height)+"                    "+image.info())
+            set_window(x, y, width, height)
+
+
+            pixels:int = width*height
+
+            n:int = 0
+            quick_start()
+            while True:
+                r_read:int = scwidth
+                if pixels < scwidth:
+                    r_read = pixels
+                # Read up to scwidth pixels into the buffer, method returns the number of pixels written
+                n = int(read_pixels(True, lbuffer, r_read, 0))
+
+                #print("Pixels Read:", n, "  ", lbuffer[PyInt(0):PyInt(2*n)].hex(sep=' '))
+                pixels -= n
+                # Number lower than the requested number means end of stream
+                if n < scwidth:
+                    if n > 0:
+                        n <<= 1         # Number of gotten pixels x2 to get number of gotten bytes
+                        write_data(lbuffer[PyInt(0):PyInt(n)])
+                else:
+                    write_data(lbuffer)
+                if pixels <= 0:
+                    break
+            quick_end()
 
 
 
@@ -323,7 +384,7 @@ class ST7789_SPI(ST7789):
         cs(1)
         dc(1)
 
-    @micropython.native
+    @micropython.viper
     def write_data(self, buf):
         """Send data to the display.
 
