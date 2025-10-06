@@ -8,8 +8,6 @@ import builtins
 
 
 # TODO; Check drawing functions if they use correct yshift, and apply window coordinates correctly
-# TODO: Implement a screen that can just be used, without lazy drawing, or components, needed for games and for draw565 Frontend
-# TODO: Rewrite draw565 to be a simple frontend to this library, as the size of the binary must be reduces, so the native and viper functions need to go
 # TODO: Implement Drawing and Switching of screens
 # TODO: For smooth scrolling it would be required to get the components of a screen efficiently, that overlap with a stripe on the screen.
 # 
@@ -209,10 +207,6 @@ class DisplayProtocol(Protocol):
 
     def wgl_fill(self, color:int, x:int, y:int, width:int, height:int):
         pass
-    # Removed as it is probably not necessary, and that the buffers needed to use would cause more problems
-    #def wgl_fill_seq(self, color:int, x:int, y:int, data:memoryview, n:int):
-    #    pass
-
     # The Function
     def wgl_blit(self, image:ImageStream, x:int, y:int):
         pass
@@ -787,8 +781,8 @@ class WaspRle2ImageStream():
 
 
 
-# The Draw Function of a component takes a Component as parameter and a WatchGraphics instance
-def _draw_function_sample(com:'Component', wgl:'WatchGraphics'):
+# The Draw Function of a component takes the reference to the component, the state dict, and a reference to the WatchGraphics Object
+def _draw_function_sample(com:'Component', state:dict[str, object], wgl:'WatchGraphics'):
     return None
 
 class Component():
@@ -803,21 +797,17 @@ class Component():
         self.y:int = y
         self.width:int = width
         self.height:int = height
+        self.dirty = False
         self._font = font
 
 
         self.draw = draw_function
         self._state:dict[str, object] = {}
-        self.dirty:bool = True
         self._screen:"Screen" = None        # type: ignore[assignment]
         self._cid:int = 0
     def init_vars(self, state:dict[str, object]):
-        self._state = state
-        if not self.dirty:
-            self._screen.notify_component_update(self._cid)
-            self.dirty = True
-    def get_var_dict(self) -> dict[str, object]:
-        return self._state
+        if self._screen is not None:
+            raise Exception("Cant init state if component is already part of a screen")
     def get_var(self, k:str) -> object:
         return self._state[k]
     def set_var(self, k:str, v:object):
@@ -827,18 +817,28 @@ class Component():
         if not self.dirty:
             self._screen.notify_component_update(self._cid)
             self.dirty = True
-    def set_var_q(self, k:str, v:object):
-        self._state[k] = v
 
 
-_SC_WIDTH = const(0)
-_SC_HEIGHT = const(1)
-_SC_THEIGHT = const(2)
+_SC_WIDTH = const(0)            # Width of Screen
+_SC_HEIGHT = const(1)           # Height of Screen
+_SC_THEIGHT = const(2)          # Height of screen in Components
+# Horizontal offset to be added when setting the component context. This is needed so that the screen can be centered even if the width cant be divided by 16
+_SC_XOFF = const(3)
+# The height of the chin, basically the area that cant be rendered to because the height cant be divided by 16
+_SC_CHIN_HEIGHT = const(4)
+
+# This means that the component Grid is centered horizontally, but not vertically.
+
+
+
+_SC_YMAP_NULL_ENTRY = const(_MAX_TILES_HEIGHT*2)
 
 class Screen():
     _8BIT_UNSIGNED_INT = _array_get_int_type(8, unsigned=True)
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
+
+    _YMAP_INITIALIZER = [0, _SC_YMAP_NULL_ENTRY]*(_MAX_TILES_HEIGHT)+[0]
 
 
     _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(_16BIT_UNSIGNED_INT, bytearray(_MAX_TILES_HEIGHT*2)))
@@ -863,23 +863,31 @@ class Screen():
 
         tiled_height:int = self.display_width//TILE_SIZE
         tiled_width:int = self.display_height//TILE_SIZE
-        self.tiled_height = tiled_height
+        self.tiled_height:int = tiled_height
 
-        self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(3*4)))
+        chin_height:int = self.display_height-(tiled_height*TILE_SIZE)
+        x_offset:int = (self.display_width-(tiled_width*TILE_SIZE))//2
+
+        assert(chin_height >= 0)
+        assert(x_offset >= 0)
+
+        self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(5*4)))
         self._screen_info[_SC_WIDTH] = self.display_width
         self._screen_info[_SC_HEIGHT] = self.display_height
         self._screen_info[_SC_THEIGHT] = tiled_height
+        self._screen_info[_SC_XOFF] = x_offset
+        self._screen_info[_SC_CHIN_HEIGHT] = chin_height
 
         assert(tiled_height <= _MAX_TILES_HEIGHT and tiled_width <= _MAX_TILES_WIDTH)
 
-        #com_map_y:list[list[int]] = []
 
         # The bitfield is used to detect overlaps in components
         # Each array index is a row and each bit says wether that column is occupied by a component
+        com_map_y:list[list[int]] = []
         bitfield:memoryview = self._CREATION_OVERLAP_BITMASK
         for i in range(tiled_height):
             bitfield[i] = 0
-            #com_map_y.append([])
+            com_map_y.append([])
 
 
         ncomponents:list['Component'] = []
@@ -898,7 +906,7 @@ class Screen():
 
             # Check and set flags in bitfield wether a given position is already occupied by another component
             for cyp in range(cy0, cy1):
-                #com_map_y[cyp].append(cid)
+                com_map_y[cyp].append(cid)
                 value = bitfield[cyp]
                 for i in range(cx0, cx1):
                     if (value>>i)&1:
@@ -915,23 +923,37 @@ class Screen():
             cid = cid+1
 
 
-        """
-        map_empty_row:memoryview = memoryview(array(self._8BIT_UNSIGNED_INT, [0]))
-        last_used_memoryview:memoryview = map_empty_row
-        last_used_list:list[int] = [0]
-        com_map_y2:list[memoryview] = []
+
+
+
+
+        last_used_offset:int = -1
+        last_used_list:list[int] = []
+        next_offset:int = _SC_YMAP_NULL_ENTRY+1
+        com_map_a:array = array(self._8BIT_UNSIGNED_INT, self._YMAP_INITIALIZER)
+        ri:int = 0
         for r in com_map_y:
             r.append(0)
-            if len(r) == 1:
-                com_map_y2.append(map_empty_row)
+            offset:int = -1
+            if len(r) <= 1:
+                offset = _SC_YMAP_NULL_ENTRY
             elif r == last_used_list:
-                com_map_y2.append(last_used_memoryview)
+                offset = last_used_offset
             else:
+                offset = next_offset
+                next_offset += int(len(r))
+                com_map_a.extend(r)
                 last_used_list = r
-                last_used_memoryview = memoryview(array(self._8BIT_UNSIGNED_INT, r))
-                com_map_y2.append(last_used_memoryview)
-        self.com_map_y:list[memoryview] = com_map_y2
-        """
+                last_used_offset = offset
+            offset &= 0xFFFF
+            com_map_a[ri] = offset>>8
+            com_map_a[ri+1] = offset&0xFF
+            ri += 2
+
+        # This is a viper friendly representation of the map that says which components are at which height
+        # First is a section of _MAX_TILES_HEIGHT byte pairs where the first byte are the upper 8 Bits and the second byte are the lower 8 bits of a 16 Bit Integer
+        # This 16 Bit integer yields and offset into the array, which is a list of cluster ids, terminated by a null byte.
+        self.com_map_y:memoryview = memoryview(com_map_a)
 
 
         self.components:list['Component'] = ncomponents
@@ -957,6 +979,10 @@ class Screen():
         update_array:ptr16 = ptr16(self.update_array)
         set_com_context = wgl._set_component_context
         builtin_false = builtins.bool(False)
+
+        sc_info:ptr32 = ptr32(self._screen_info)
+        x_offset:int = sc_info[_SC_XOFF]
+
 
         # Use Pointers to set value
         update_bitfield:int = update_array[0]
@@ -991,7 +1017,7 @@ class Screen():
                     continue
                 cid = id_block_off+id_sub
                 com = self.components[cid]
-                set_com_context(com._font, com.x, com.y, com.width, com.height, 0)
+                set_com_context(com._font, x_offset+com.x, com.y, com.width, com.height, 0)
                 com_draw = com.draw
                 com_draw(com, wgl)
                 com.dirty = builtin_false
@@ -1006,11 +1032,15 @@ class Screen():
         update_array:ptr16 = ptr16(self.update_array)
         set_com_context = wgl._set_component_context
 
+        sc_info:ptr32 = ptr32(self._screen_info)
+        x_offset:int = sc_info[_SC_XOFF]
+
+
         n2:int = 0
         while n2 < 9:
             update_array[n2] = 0
         for com in self.components:
-            set_com_context(com._font, com.x, com.y, com.width, com.height, 0)
+            set_com_context(com._font, x_offset+com.x, com.y, com.width, com.height, 0)
             com_draw = com.draw
             com_draw(com, wgl)
             com.dirty = builtin_false
