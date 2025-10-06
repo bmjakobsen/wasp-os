@@ -151,9 +151,6 @@ class Manager():
         # Reference to the current WatchGL screen
         self._current_screen = None
 
-    def create_screen(self, bgcolor:int, components:list['Component']) -> Screen:
-        return Screen(bgcolor, watch.wgl, components)
-
     def secondary_init(self):
         global free
 

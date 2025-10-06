@@ -429,10 +429,12 @@ class WaspFontStream():
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
-    def _set_color(self, n:int, color:int):
-        if n < 0 or n > 1:
-            raise Exception("Invalid Palette Index")
-        self._palette[n] = _convert_color_to_format(self._color_format, color)
+    @micropython.viper
+    def _set_color(self, color:int, bgcolor:int):
+        cf:int = int(self._color_format)
+        fconv = _convert_color_to_format
+        self._palette[0] = fconv(cf, bgcolor)
+        self._palette[1] = fconv(cf, color)
 
     def reset(self):
         # Set State required for reading the image
@@ -843,7 +845,10 @@ class Screen():
     def __init__(self, bgcolor:int, wgl:'WatchGraphics', components:list['Component'], font=fonts.sans24):
         if len(components) > 127:
             raise Exception("Too many components")
-        self.bgcolor:int = bgcolor
+        self.bgcolor:int = bgcolor&0xFF
+
+        if font is None:
+            font = fonts.sans24
         self._font = font
 
         self._wgl = wgl
@@ -995,6 +1000,8 @@ class Screen():
 
     @micropython.viper
     def _draw_full(self):
+        builtin_false = builtins.bool(False)
+        self._full_draw = builtin_false
         wgl = self._wgl
         update_array:ptr16 = ptr16(self.update_array)
         set_com_context = wgl._set_component_context
@@ -1002,7 +1009,6 @@ class Screen():
         n2:int = 0
         while n2 < 9:
             update_array[n2] = 0
-        builtin_false = builtins.bool(False)
         for com in self.components:
             set_com_context(com._font, com.x, com.y, com.width, com.height, 0)
             com_draw = com.draw
@@ -1133,6 +1139,9 @@ class WatchGraphics():
 
 
 
+
+    def create_screen(self, bgcolor:int, components:list['Component'], font=fonts.sans24):
+        return Screen(bgcolor, self, components, font=font)
 
     # Bit image to the screen at position, will automatically be cropped if it goes out of bounds
     @micropython.viper
@@ -1406,8 +1415,7 @@ class WatchGraphics():
         font:WaspFontStream = self._font
         if bgcolor < 0:
             bgcolor = self.bgcolor
-        font._set_color(0, bgcolor)
-        font._set_color(1, color)
+        font._set_color(color, bgcolor)
 
         font_height = font._font_height
 
