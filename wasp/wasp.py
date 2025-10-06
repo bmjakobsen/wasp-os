@@ -278,11 +278,13 @@ class Manager():
         self.app = app
         if screen is None:
             watch.wgl._set_screen(None, None)
+            watch.drawable._wgl = watch.drawable._wgl_bak
             watch.display.mute(True)
             watch.drawable.reset()
             app.foreground()
             watch.display.mute(False)
         else:
+            watch.drawable._wgl = None
             watch.wgl._set_screen(None, screen)
 
     def navigate(self, direction=None):
