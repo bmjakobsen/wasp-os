@@ -118,6 +118,7 @@ class Manager():
         self.weatherinfo = {}
         self.units = "Metric"
 
+
         self._theme = (
                 b'\x7b\xef'     # ble
                 b'\x7b\xef'     # scroll-indicator
@@ -146,6 +147,9 @@ class Manager():
         self._charging = True
         self._scheduled = False
         self._scheduling = False
+
+        # Reference to the current WatchGL screen
+        self._current_screen = None
 
     def create_screen(self, bgcolor:int, components:list['Component']) -> Screen:
         return Screen(bgcolor, watch.wgl, components)
@@ -275,17 +279,27 @@ class Manager():
         self.tick_period_ms = 0
         self.tick_expiry = None
 
+        cscreen = self._current_screen
+
+
+
         self.app = app
         if screen is None:
             watch.wgl._set_screen(None, None)
             watch.drawable._wgl = watch.drawable._wgl_bak
             watch.display.mute(True)
+            if cscreen is not None:
+                cscreen._clear_screen(0)
+            self._current_screen = None
             watch.drawable.reset()
             app.foreground()
             watch.display.mute(False)
         else:
             watch.drawable._wgl = None
+            if cscreen is not None and cscreen is not screen:
+                cscreen._clear_screen(screen.bgcolor)
             watch.wgl._set_screen(None, screen)
+            self._current_screen = screen
 
     def navigate(self, direction=None):
         """Navigate to a new application.
