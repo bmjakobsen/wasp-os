@@ -10,7 +10,7 @@ import fonts.sans24
 import math
 import micropython
 
-from watchgl import MonoRleImageStream, Rle2ImageStream
+from watchgl import WaspRle1ImageStream, WaspRle2ImageStream
 
 from micropython import const
 
@@ -36,14 +36,19 @@ class Draw565(object):
         """
 
 
-        print(wg)
-
 
         self.wg = wg
 
-        self._rle_stream = MonoRleImageStream(wg.display.spec.color_format, memoryview(b'\x08'), 8, 1)
-        self._rle2_stream = Rle2ImageStream(wg.display.spec.color_format, memoryview(b'\x08'), 8, 1)
+        self._rle_stream = WaspRle1ImageStream(wg.display.spec.color_format, memoryview(b'\x08'), 8, 1)
+        self._rle2_stream = WaspRle2ImageStream(wg.display.spec.color_format, memoryview(b'\x08'), 8, 1)
 
+        self._rle_stream._set_color(0, 0)
+        self._rle_stream._set_color(1, 0xFFFF)
+
+        self._rle2_stream._set_color(0, 0)
+        self._rle2_stream._set_color(1, 0x4a69)
+        self._rle2_stream._set_color(2, 0x7bef)
+        self._rle2_stream._set_color(3, 0xFFFF)
 
         self.reset()
 
@@ -85,11 +90,13 @@ class Draw565(object):
 
 
     def rleblit(self, image, pos=(0, 0), fg=0xffff, bg=0):
+        x, y = pos
         (sx, sy, image_data) = image
         stream = self._rle_stream
         stream._setup(image_data, sx, sy)
-        stream.set_color(0, bg)
-        stream.set_color(1, fg)
+        stream._set_color(0, bg)
+        stream._set_color(1, fg)
+        self.wg.blit(stream, x, y)
 
     def blit(self, image, x, y, fg=0xffff, c1=0x4a69, c2=0x7bef):
         """Decode and draw an encoded image.
@@ -102,15 +109,14 @@ class Draw565(object):
         if len(image) == 3:
             self.rleblit(image, pos=(x, y), fg=fg)
         else: #elif image[0] == 2:
-            sx = image[0]
-            sy = image[1]
-            image_data = image[2:]
+            sx = image[1]
+            sy = image[2]
+            image_data = image[3:]
             stream = self._rle2_stream
             stream._setup(image_data, sx, sy)
-            stream.set_color(0, 0)
-            stream.set_color(1, c1)
-            stream.set_color(2, c2)
-            stream.set_color(3, fg)
+            stream._set_color(1, c1)
+            stream._set_color(2, c2)
+            stream._set_color(3, fg)
             self.wg.blit(stream, x, y)
 
     def set_color(self, color, bg=0):
@@ -124,6 +130,7 @@ class Draw565(object):
         :param bg:    Background colour, defaults to black
         """
         self._bg = bg
+        self.wg._set_bgcolor(bg)
         self._fg = color
 
     def set_font(self, font):
@@ -152,6 +159,8 @@ class Draw565(object):
         fg = self._fg
         bg = self._bg
 
+
+        rx = 0
         if width:
             (w, h) = self.wg.string_bounding_box(s)
             if right:
@@ -162,11 +171,12 @@ class Draw565(object):
                 rightpad = width - w - leftpad
             self.fill(bg, x, y, leftpad, h)
             x += leftpad
+            rx = x+w
 
         self.wg.draw_string(fg, s, x, y)
 
         if width:
-            self.fill(bg, x, y, rightpad, h)
+            self.fill(bg, rx, y, rightpad, h)
 
     def bounding_box(self, s):
         """Return the bounding box of a string.
@@ -211,10 +221,10 @@ class Draw565(object):
                     end = i
                     break
                 ch = s[i]
-                pxd = font.get_ch(ch)
-                h = pxd.height
-                w = pxd.width
-                l += w + 1
+                font._set_ch(ch)
+                h = font.height
+                w = font.width
+                l += w
                 if l > width:
                     if end <= start:
                         end = i
@@ -280,7 +290,7 @@ class Draw565(object):
 
         if color is None:
             color = self._fg
-        self.wg.draw_line_polar(color, x, y, theta, r0, r1, width)
+        self.wg.draw_line_polar(color, width, x, y, theta, r0, r1)
 
     def lighten(self, color, step=1):
         """Get a lighter shade from the same palette.

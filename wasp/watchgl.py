@@ -129,28 +129,34 @@ ALIGNMENT_LEFT = const(1)
 ALIGNMENT_RIGHT = const(2)
 
 
+
 class ImageStream(Protocol):
     width: int
     height: int
     # Reset Stream, or restart it
     def reset(self):
         pass
-    # Skip n Pixels
-    def skip_pixels(self, n:int):
-        pass
+
     # Read n Pixels, into the buffer at the given offset, returns number of pixels read. Offset is in pixels
     # The streams signals that it is emptry by returning a number smaller than the number of requested pixels
     # The stream is never allowed to return less pixels than requested, while the stream has not reached its end
 
     # A Reader can expect that a stream does not have too many pixels, or that the number of remaining pixels changes unless by the amount specified in skip_pixels or when reading_pixels
 
-    def read_pixels(self, buf:memoryview, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf:memoryview, n:int, offset:int) -> int:
         return -1
     # Get Remaining number of pixels, should only be used in a few cases, like ensuring the stream has enough pixels before starting to read it, as it can be slow.
     def get_remaining(self) -> int:
         return -1
     def info(self) -> str:
         return ""
+
+
+_DUMMY_BUFFER:memoryview = memoryview(bytearray(16))
+@micropython.viper
+def _skip_pixels(s, n:int):
+    global _DUMMY_BUFFER
+    s.read_pixels(False, _DUMMY_BUFFER, n, 0)
 
 
 
@@ -215,10 +221,12 @@ class DisplayProtocol(Protocol):
 
 
 
+
+ARROFF = const(0x10000)
+
 _SX_WIDTH = const(0)
 _SX_HEIGHT = const(1)
 _SX_REMAINING = const(2)
-
 
 # Image Stream used to wrap another image stream and crop it vertically, by specifiying the new reduced height, and the number of lines skipped at the start
 class VerticalCropStream():
@@ -240,29 +248,18 @@ class VerticalCropStream():
         self._pixels_n:int = self.height*self.width
         self._skip:int = skip*self.width
 
-        self._instream.skip_pixels(self._skip)
+        _skip_pixels(self._instream, self._skip)
         self._extra_state[_SX_REMAINING] = self._pixels_n
         assert(self._instream.get_remaining() >= self._pixels_n)
     def reset(self):
         self._instream.reset()
-        self._instream.skip_pixels(self._skip)
+        _skip_pixels(self._instream, self._skip)
         self._extra_state[_SX_REMAINING] = self._pixels_n
         assert(self._instream.get_remaining() >= self._pixels_n)
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
     @micropython.viper
-    def skip_pixels(self, n:int):
-        state:ptr32 = ptr32(self._extra_state)
-        remaining:int = state[_SX_REMAINING]
-        if n > remaining:
-            n = remaining
-        if n <= 0:
-            return
-        skip_pixels = self._instream.skip_pixels
-        skip_pixels(n)
-        state[_SX_REMAINING] = remaining - n
-    @micropython.viper
-    def read_pixels(self, buf, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
         remaining:int = state[_SX_REMAINING]
         if n > remaining:
@@ -270,7 +267,7 @@ class VerticalCropStream():
         if n <= 0:
             return 0
         read_pixels = self._instream.read_pixels
-        r:int = int(read_pixels(buf, n, offset))
+        r:int = int(read_pixels(read, buf, n, offset))
         remaining -= r
         state[_SX_REMAINING] = remaining
         return r
@@ -317,7 +314,7 @@ class HorizontalCropStream():
         self._extra_state[_SX_REMAINING] = self._pixels_n
         self._extra_state[_HCS_REM_IN_L] = self.width
         assert(self._instream.get_remaining() >= self._instream_required)
-        self._instream.skip_pixels(self._skip_at_start)
+        _skip_pixels(self._instream, self._skip_at_start)
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
@@ -326,39 +323,10 @@ class HorizontalCropStream():
         self._extra_state[_SX_REMAINING] = self._pixels_n
         self._extra_state[_HCS_REM_IN_L] = self.width
         assert(self._instream.get_remaining() >= self._instream_required)
-        self._instream.skip_pixels(self._skip_at_start)
+        _skip_pixels(self._instream, self._skip_at_start)
+
     @micropython.viper
-    def skip_pixels(self, n:int):
-        state:ptr32 = ptr32(self._extra_state)
-        remaining:int = state[_SX_REMAINING]
-        if n > remaining:
-            n = remaining
-        if n <= 0:
-            return
-
-        skip_pixels = self._instream.skip_pixels
-        skip_total:int = 0
-
-        WIDTH:int = state[_SX_WIDTH]
-        SKIP:int = state[_HCS_SKIP]
-        rem_in_l:int = state[_HCS_REM_IN_L]
-
-        while n > 0:
-            if n >= rem_in_l:
-                skip_total += rem_in_l+SKIP
-                n -= rem_in_l
-                remaining -= rem_in_l
-                rem_in_l = WIDTH
-            else:
-                skip_total += n
-                rem_in_l -= n
-                remaining -= n
-                n = 0
-        skip_pixels(skip_total)
-        state[_SX_REMAINING] = remaining
-        state[_HCS_REM_IN_L] = rem_in_l
-    @micropython.viper
-    def read_pixels(self, buf, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
 
         remaining:int = state[_SX_REMAINING]
@@ -367,7 +335,8 @@ class HorizontalCropStream():
         if n <= 0:
             return 0
 
-        skip_pixels = self._instream.skip_pixels
+        instream = self._instream
+        skip_pixels = _skip_pixels
         read_pixels = self._instream.read_pixels
 
         WIDTH:int = state[_SX_WIDTH]
@@ -377,14 +346,14 @@ class HorizontalCropStream():
         read_bytes:int = 0
         while n > 0:
             if n >= rem_in_l:
-                r = int(read_pixels(buf, rem_in_l, offset+read_bytes))
+                r = int(read_pixels(read, buf, rem_in_l, offset+read_bytes))
                 read_bytes += r
                 n -= rem_in_l
-                skip_pixels(SKIP)
+                skip_pixels(instream, SKIP)
                 remaining -= rem_in_l
                 rem_in_l = WIDTH
             else:
-                r = int(read_pixels(buf, n, offset+read_bytes))
+                r = int(read_pixels(read, buf, n, offset+read_bytes))
                 read_bytes += r
                 rem_in_l -= n
                 remaining -= n
@@ -397,8 +366,8 @@ class HorizontalCropStream():
 
 
 _DEFAULT_TEXT_FGCOLOR:int = const(0xFFFF)
-_PALETTE2_INITALIZER = [0, _DEFAULT_TEXT_FGCOLOR]
-_PALETTE4_INITALIZER = [0, 0x4a69, 0x7bef, _DEFAULT_TEXT_FGCOLOR]
+_PALETTE2_INITALIZER = [0, 0xFFFF]
+_PALETTE4_INITALIZER = [0, 0x4a69, 0x7bef, 0xFFFF]
 
 
 
@@ -418,52 +387,52 @@ def _convert_color_to_format(format:int, color:int) -> int:
 _MIS_CBYTE = const(3)
 _MIS_INDEX = const(4)
 _MIS_REM_IN_L = const(5)
-_MIS_REM_IN_B = const(6)
+_MIS_BITSEL = const(6)
+_MIS_WEXTEND = const(1)
 # Streamer for reading a memoryview (1 byte per element) as an uncompressed image, with one bit per pixel
-class MonoImageStream():
+class WaspFontStream():
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
-    def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
+    def __init__(self, screen_color_format:int, font):
         self._color_format:int = screen_color_format
-        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER))
+        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER+_PALETTE2_INITALIZER))
         self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(7*4)))
-        self._setup(raw_data, width, height)
-    def _setup(self, raw_data:memoryview, width:int, height:int):
+        for i in range(4):
+            self._palette[i] = _convert_color_to_format(screen_color_format, self._palette[i])
+        self._current_char = 'T'
+        self._set_font(font)
+    def _set_font(self, font):
+        self._font_height:int = font.height()
+        self._font_max_width:int = font.max_width()
+        self._font = font
+        self._set_ch(self._current_char)
+    def _set_ch(self, ch:str):
+        raw_data, height, width = self._font.get_ch(ch)
+        self._current_char = ch
         if width <= 0 or height <= 0:
             raise Exception("Image must have a positive size greater than 0")
 
+        width += _MIS_WEXTEND
         self._raw_data:memoryview = raw_data
         self.width:int = width
         self.height:int = height
         self._n_pixels:int = width*height
+
 
         # Width
         self._extra_state[_SX_WIDTH] = self.width
         # Height
         self._extra_state[_SX_HEIGHT] = self.height
 
-
-        #Remaining
-        self._extra_state[_SX_REMAINING] = self._n_pixels
-        #cbyte
-        self._extra_state[_MIS_CBYTE] = self._raw_data[0]
-        #index
-        self._extra_state[_MIS_INDEX] = 0
-        # Remaining in line
-        self._extra_state[_MIS_REM_IN_L] = self.width
-        # Remaining in byte
-        self._extra_state[_MIS_REM_IN_B] = 8
-        if self._extra_state[_MIS_REM_IN_L] < 8:
-            self._extra_state[_MIS_REM_IN_B] = self._extra_state[_MIS_REM_IN_L]
+        self.reset()
 
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
-    def set_color(self, n:int, color:int):
+    def _set_color(self, n:int, color:int):
         if n < 0 or n > 1:
             raise Exception("Invalid Palette Index")
         self._palette[n] = _convert_color_to_format(self._color_format, color)
-
 
     def reset(self):
         # Set State required for reading the image
@@ -477,55 +446,10 @@ class MonoImageStream():
         # Remaining in line
         self._extra_state[_MIS_REM_IN_L] = self.width
         # Remaining in byte
-        self._extra_state[_MIS_REM_IN_B] = 8
-        if self._extra_state[_MIS_REM_IN_L] < 8:
-            self._extra_state[_MIS_REM_IN_B] = self._extra_state[_MIS_REM_IN_L]
+        self._extra_state[_MIS_BITSEL] = 0x80
 
     @micropython.viper
-    def skip_pixels(self, n:int):
-        state:ptr32 = ptr32(self._extra_state)
-
-        remaining:int = state[_SX_REMAINING]
-        if n > remaining:
-            n = remaining
-        if n <= 0:
-            return
-
-
-        raw_data:ptr8 = ptr8(self._raw_data)
-
-        WIDTH:int = state[_SX_WIDTH]
-        cbyte:int = state[_MIS_CBYTE]
-        index:int = state[_MIS_INDEX]
-        rem_in_b:int = state[_MIS_REM_IN_B]
-        rem_in_l:int = state[_MIS_REM_IN_L]
-
-        n2:int = n
-        while n2 > 0:
-            n2 -= 1
-
-            cbyte >>= 1
-            rem_in_b -= 1
-            rem_in_l -= 1
-            remaining -= 1
-            if remaining <= 0:
-                break
-            if rem_in_b == 0:
-                rem_in_b = 8
-                if rem_in_l <= 0:
-                    rem_in_l = WIDTH
-                elif rem_in_l < 8:
-                    rem_in_b = rem_in_l
-                index += 1
-                cbyte = raw_data[index]
-        state[_SX_REMAINING] = remaining
-        state[_MIS_CBYTE] = cbyte
-        state[_MIS_INDEX] = index
-        state[_MIS_REM_IN_B] = rem_in_b
-        state[_MIS_REM_IN_L] = rem_in_l
-
-    @micropython.viper
-    def read_pixels(self, buf, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
 
         buf2:ptr8 = ptr8(buf)
@@ -544,52 +468,58 @@ class MonoImageStream():
         WIDTH:int = state[_SX_WIDTH]
         cbyte:int = state[_MIS_CBYTE]
         index:int = state[_MIS_INDEX]
-        rem_in_b:int = state[_MIS_REM_IN_B]
+        bitselect:int = state[_MIS_BITSEL]
         rem_in_l:int = state[_MIS_REM_IN_L]
 
         n2:int = n
         while n2 > 0:
             n2 -= 1
 
-            color:int = palette[cbyte&1]
-            buf2[offset] = color&0xFF
-            buf2[offset+1] = (color>>8)&0xFF
+            color:int = palette[1] if cbyte&bitselect else palette[0]
+            if read:
+                buf2[offset] = (color>>8)&0xFF
+                buf2[offset+1] = color&0xFF
             offset += 2
 
-            cbyte >>= 1
-            rem_in_b -= 1
+
+            bitselect >>= 1
             rem_in_l -= 1
             remaining -= 1
             if remaining <= 0:
                 break
-            if rem_in_b <= 0:
-                rem_in_b = 8
-                if rem_in_l <= 0:
-                    rem_in_l = WIDTH
-                elif rem_in_l < 8:
-                    rem_in_b = rem_in_l
+            if rem_in_l <= _MIS_WEXTEND and rem_in_l > 0:
+                bitselect = 0
+                continue
+            if rem_in_l <= 0:
+                rem_in_l = WIDTH
+                bitselect = 0
+            if bitselect == 0:
+                bitselect = 0x80
                 index += 1
                 cbyte = raw_data[index]
         state[_SX_REMAINING] = remaining
         state[_MIS_CBYTE] = cbyte
         state[_MIS_INDEX] = index
-        print(rem_in_b)
-        state[_MIS_REM_IN_B] = rem_in_b
+        state[_MIS_BITSEL] = bitselect
         state[_MIS_REM_IN_L] = rem_in_l
         return n
+    def info(self) -> str:
+        return "WaspFontStream("+str(self._current_char)+", "+str(self.width)+", "+str(self.height)+")"
 
 
 
 _MRIS_COLOR = const(3)
 _MRIS_RLEN = const(4)
 _MRIS_INDEX = const(5)
-class MonoRleImageStream():
+class WaspRle1ImageStream():
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
     def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
         self._color_format:int = screen_color_format
         self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER))
         self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
+        for i in range(2):
+            self._palette[i] = _convert_color_to_format(screen_color_format, self._palette[i])
         self._setup(raw_data, width, height)
     def _setup(self, raw_data:memoryview, width:int, height:int):
         if width <= 0 or height <= 0:
@@ -604,19 +534,12 @@ class MonoRleImageStream():
         self._extra_state[_SX_WIDTH] = self.width
         # Height
         self._extra_state[_SX_HEIGHT] = self.height
-        #Remaining
-        self._extra_state[_SX_REMAINING] = self._n_pixels
-        #cbyte
-        self._extra_state[_MRIS_COLOR] = 0
-        # Remaining in byte
-        self._extra_state[_MRIS_RLEN] = raw_data[0]
-        #index
-        self._extra_state[_MRIS_INDEX] = 0
+        self.reset()
 
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
-    def set_color(self, n:int, color:int):
+    def _set_color(self, n:int, color:int):
         if n < 0 or n > 1:
             raise Exception("Invalid Palette Index")
         self._palette[n] = _convert_color_to_format(self._color_format, color)
@@ -636,45 +559,12 @@ class MonoRleImageStream():
         self._extra_state[_MRIS_INDEX] = 0
 
     @micropython.viper
-    def skip_pixels(self, n:int):
-        state:ptr32 = ptr32(self._extra_state)
-
-        remaining:int = state[_SX_REMAINING]
-        if n > remaining:
-            n = remaining
-        if n <= 0:
-            return
-
-
-        raw_data:ptr8 = ptr8(self._raw_data)
-
-        color:int = state[_MRIS_COLOR]
-        rlen:int = state[_MRIS_RLEN]
-        index:int = state[_MRIS_INDEX]
-
-        n2:int = n
-        while n2 > 0:
-            if rlen <= n2:
-                n2 -= rlen
-                color = (color+1)&1
-                index += 1
-                rlen = raw_data[index]
-            else:
-                rlen -= n2
-        state[_SX_REMAINING] = remaining
-        state[_MRIS_COLOR] = color
-        state[_MRIS_RLEN] = rlen
-        state[_MRIS_INDEX] = index
-
-    @micropython.viper
-    def read_pixels(self, buf, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
 
         buf2:ptr8 = ptr8(buf)
         remaining:int = state[_SX_REMAINING]
-        empty:bool = False
         if n >= remaining:
-            empty = True
             n = remaining
         if n <= 0:
             return 0
@@ -700,11 +590,18 @@ class MonoRleImageStream():
         n2:int = n
         while n2 > 0:
             n2 -= 1
-            rlen -= 1
-            buf2[offset] = color_0
-            buf2[offset+1] = color_1
 
-            if rlen <= 0 and (n2 > 0 or not empty):
+            rlen -= 1
+            remaining -= 1
+            if read:
+                buf2[offset] = color_1
+                buf2[offset+1] = color_0
+            offset += 2
+
+
+            if remaining == 0:
+                break
+            while rlen <= 0:
                 index += 1
                 rlen = raw_data[index]
                 color = (color+1)&1
@@ -716,20 +613,54 @@ class MonoRleImageStream():
         state[_MRIS_RLEN] = rlen
         state[_MRIS_INDEX] = index
         return n
+    def info(self) -> str:
+        return "WaspRle1ImageStream("+str(self.width)+", "+str(self.height)+")"
 
 
+
+
+
+
+
+
+
+@micropython.viper
+def _clut8_rgb565(color_format:int, i: int) -> int:
+    if i < 216:
+        rgb565  = (( i  % 6) * 0x33) >> 3
+        rg = i // 6
+        rgb565 += ((rg  % 6) * (0x33 << 3)) & 0x07e0
+        rgb565 += ((rg // 6) * (0x33 << 8)) & 0xf800
+    elif i < 252:
+        i -= 216
+        rgb565  = (0x7f + (( i  % 3) * 0x33)) >> 3
+        rg = i // 3
+        rgb565 += ((0x4c << 3) + ((rg  % 4) * (0x33 << 3))) & 0x07e0
+        rgb565 += ((0x7f << 8) + ((rg // 4) * (0x33 << 8))) & 0xf800
+    else:
+        i -= 252
+        gr6 = (0x2c + (0x10 * i)) >> 2
+        gr5 = gr6 >> 1
+        rgb565 = (gr5 << 11) + (gr6 << 5) + gr5
+
+    return _convert_color_to_format(color_format, rgb565)
 
 
 _R2IS_COLOR = const(3)
-_R2IS_RLEN = const(4)
-_R2IS_INDEX = const(5)
-class Rle2ImageStream():
+_R2IS_NXCOLOR = const(4)
+_R2IS_RLEN = const(5)
+_R2IS_INDEX = const(6)
+_R2IS_MAXINDEX = const(7)
+class WaspRle2ImageStream():
     _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
     def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
         self._color_format:int = screen_color_format
-        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE4_INITALIZER))
-        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
+        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE4_INITALIZER+_PALETTE4_INITALIZER))
+        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(8*4)))
+        self._dummy_buf:memoryview = memoryview(bytearray(1))
+        for i in range(8):
+            self._palette[i] = _convert_color_to_format(screen_color_format, self._palette[i])
         self._setup(raw_data, width, height)
     def _setup(self, raw_data:memoryview, width:int, height:int):
         if width <= 0 or height <= 0:
@@ -744,82 +675,48 @@ class Rle2ImageStream():
         self._extra_state[_SX_WIDTH] = self.width
         # Height
         self._extra_state[_SX_HEIGHT] = self.height
-        #Remaining
-        self._extra_state[_SX_REMAINING] = self._n_pixels
-        fbyte:int = raw_data[0]
-        #cbyte
-        self._extra_state[_MRIS_COLOR] = (fbyte>>6)&3
-        # Remaining in byte
-        self._extra_state[_MRIS_RLEN] = fbyte&0x3F
         #index
-        self._extra_state[_MRIS_INDEX] = 0
+        self._extra_state[_R2IS_MAXINDEX] = len(raw_data)-1
+        self.reset()
 
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
-    def set_color(self, n:int, color:int):
+    def _set_color(self, n:int, color:int):
         if n < 0 or n > 3:
             raise Exception("Invalid Palette Index")
-        self._palette[n] = _convert_color_to_format(self._color_format, color)
+        c = _convert_color_to_format(self._color_format, color)
+        self._palette[n] = c
+        self._palette[n+4] = c
 
     def reset(self):
         # Set State required for reading the image
 
+        palette:memoryview = self._palette
+        palette[0] = palette[0+4]
+        palette[1] = palette[1+4]
+        palette[2] = palette[2+4]
+        palette[3] = palette[3+4]
         raw_data:memoryview = self._raw_data
 
         #Remaining
         self._extra_state[_SX_REMAINING] = self._n_pixels
-        fbyte:int = raw_data[0]
         #color
-        self._extra_state[_MRIS_COLOR] = (fbyte>>6)&3
+        self._extra_state[_R2IS_COLOR] = 4
+        self._extra_state[_R2IS_NXCOLOR] = 1
         #index
-        self._extra_state[_MRIS_RLEN] = fbyte&0x3F
+        self._extra_state[_R2IS_RLEN] = 0
         #index
-        self._extra_state[_MRIS_INDEX] = 0
+        self._extra_state[_R2IS_INDEX] = -1+ARROFF
 
     @micropython.viper
-    def skip_pixels(self, n:int):
-        state:ptr32 = ptr32(self._extra_state)
-
-        remaining:int = state[_SX_REMAINING]
-        if n > remaining:
-            n = remaining
-        if n <= 0:
-            return
-
-
-        raw_data:ptr8 = ptr8(self._raw_data)
-
-        color:int = state[_MRIS_COLOR]
-        rlen:int = state[_MRIS_RLEN]
-        index:int = state[_MRIS_INDEX]
-        fbyte:int = 0
-
-        n2:int = n
-        while n2 > 0:
-            if rlen <= n2:
-                n2 -= rlen
-                index += 1
-                fbyte = raw_data[index]
-                color = (fbyte>>6)&3
-                rlen = fbyte&0x3F
-            else:
-                rlen -= n2
-        state[_SX_REMAINING] = remaining
-        state[_MRIS_COLOR] = color
-        state[_MRIS_RLEN] = rlen
-        state[_MRIS_INDEX] = index
-
-    @micropython.viper
-    def read_pixels(self, buf, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
 
         buf2:ptr8 = ptr8(buf)
         remaining:int = state[_SX_REMAINING]
-        empty:bool = False
         if n >= remaining:
             n = remaining
-            empty = True
         if n <= 0:
             return 0
         # Offset is in pixels, but offset is required in bytes, so multiply by two
@@ -829,39 +726,59 @@ class Rle2ImageStream():
         palette:ptr16 = ptr16(self._palette)
         raw_data:ptr8 = ptr8(self._raw_data)
 
-        color:int = state[_MRIS_COLOR]
-        rlen:int = state[_MRIS_RLEN]
-        index:int = state[_MRIS_INDEX]
+        color:int = state[_R2IS_COLOR]
+        nxcolor:int = state[_R2IS_NXCOLOR]
+        rlen:int = state[_R2IS_RLEN]
+        index:int = state[_R2IS_INDEX]-ARROFF
         fbyte:int = 0
+        max_index = state[_R2IS_MAXINDEX]
 
-        while rlen <= 0:
-            index += 1
-            fbyte = raw_data[index]
-            color = (fbyte>>6)&3
-            rlen = fbyte&0x3F
-        color_0 = palette[color]&0xFF
-        color_1 = (palette[color]>>8)&0xFF
+        clut8_rgb565 = _clut8_rgb565
+
 
         n2:int = n
         while n2 > 0:
-            n2 -= 1
-            rlen -= 1
-            buf2[offset] = color_0
-            buf2[offset+1] = color_1
-
-            if rlen <= 0 and (n2 > 0 or not empty):
+            if color < 4 and rlen > 0:
+                color_0 = palette[color]&0xFF
+                color_1 = (palette[color]>>8)&0xFF
+                while rlen > 0 and n2 > 0:
+                    if read:
+                        buf2[offset] = color_1
+                        buf2[offset+1] = color_0
+                    offset += 2
+                    rlen -= 1
+                    n2 -= 1
+                    remaining -= 1
+            if n2 == 0:
+                break
+            if rlen == 0:
                 index += 1
                 fbyte = raw_data[index]
                 color = (fbyte>>6)&3
                 rlen = fbyte&0x3F
-                color_0 = palette[color]&0xFF
-                color_1 = (palette[color]>>8)&0xFF
-
+                if rlen == 0:
+                    index += 1
+                    fbyte = raw_data[index]
+                    palette[nxcolor] = clut8_rgb565(self._color_format, fbyte)&0xFFFF
+                    nxcolor += 1
+                    if nxcolor > 3:
+                        nxcolor = 1
+                    rlen = 0
+                elif rlen == 63:
+                    while index < max_index:
+                        index += 1
+                        fbyte = raw_data[index]
+                        rlen += fbyte
+                        if fbyte < 255:
+                            break
         state[_SX_REMAINING] = remaining
-        state[_MRIS_COLOR] = color
-        state[_MRIS_RLEN] = rlen
-        state[_MRIS_INDEX] = index
+        state[_R2IS_COLOR] = color
+        state[_R2IS_NXCOLOR] = nxcolor
+        state[_R2IS_RLEN] = rlen
+        state[_R2IS_INDEX] = index+ARROFF
         return n
+    def info(self) -> str:
+        return "WaspRle2ImageStream("+str(self.width)+", "+str(self.height)+")"
 
 
 
@@ -1099,38 +1016,6 @@ class Screen():
 
 
 
-class _LegacyFontWrapper():
-    def __init__(self, font_data, color_format:int):
-        (px, h, w) = font_data.get_ch('T')
-        self._bitblit:MonoImageStream = MonoImageStream(color_format, px, h, w)
-        self._setup(font_data)
-    def _setup(self, font_data):
-        self._fgcolor:int = _DEFAULT_TEXT_FGCOLOR
-        self._bitblit.set_color(0, _DEFAULT_TEXT_FGCOLOR)
-
-        self.height:int = int(font_data.height())
-        self.max_width:int = int(font_data.max_width())
-        self.baseline:int = int(font_data.baseline())
-        self.hmap:bool = bool(font_data.hmap())
-        self.reverse:bool = bool(font_data.reverse())
-        self.monospaced:bool = bool(font_data.monospaced())
-        self.min_ch:int = int(font_data.min_ch())
-        self.max_ch:int = int(font_data.max_ch())
-        self._raw_data = font_data
-    def set_bgcolor(self, color:int):
-        self._bitblit.set_color(0, color)
-    def set_fgcolor(self, color:int):
-        if self._fgcolor != color:
-            self._bitblit.set_color(1, color)
-            self._fgcolor = color
-    def get_ch(self, ch:str) -> MonoImageStream:
-        (px, h, w) = self._raw_data.get_ch(ch)
-        bitblit:MonoImageStream = self._bitblit
-        bitblit._setup(px, w, h)
-        return bitblit
-
-
-
 
 
 _WGWI_WIDTH = const(0)
@@ -1149,7 +1034,7 @@ class WatchGraphics():
     def __init__(self, display:DisplayProtocol, gc_collect:bool=True):
         self.display:DisplayProtocol = display
 
-        self._font:_LegacyFontWrapper = _LegacyFontWrapper(fonts.sans24, display.spec.color_format)
+        self._font:WaspFontStream = WaspFontStream(display.spec.color_format, fonts.sans24)
 
         self.bgcolor:int = _DEFAULT_BGCOLOR
         self._text_bgcolor:int = _DEFAULT_BGCOLOR
@@ -1181,11 +1066,18 @@ class WatchGraphics():
             _gc_collect()
 
     def set_font(self, font):
-        self._font._setup(font)
+        self._font._set_font(font)
 
     def _set_screen_context(self, bgcolor:int):
         self.bgcolor = bgcolor
         self._set_component_context(0, 0, self.display.spec.width, self.display.spec.height, 0)
+
+    def _set_bgcolor(self, bgcolor:int):
+        self.bgcolor = bgcolor
+        if self._text_bgcolor != bgcolor or self._text_bgcolor_modified:
+            self._text_bgcolor = bgcolor
+            self._text_bgcolor_modified = False
+            self._font._set_color(0, bgcolor)
 
     def _set_component_context(self, x:int, y:int, width:int, height:int, shift_y:int):
         self.width = width
@@ -1194,7 +1086,7 @@ class WatchGraphics():
         if self._text_bgcolor != bgcolor or self._text_bgcolor_modified:
             self._text_bgcolor = bgcolor
             self._text_bgcolor_modified = False
-            self._font.set_bgcolor(bgcolor)
+            self._font._set_color(0, bgcolor)
 
         # Setup window info
         self._window_info[_WGWI_WIDTH] = self.width
@@ -1245,38 +1137,42 @@ class WatchGraphics():
         skip_lines:int = 0
         if y < 0:
             skip_lines -= y
+            height += y
+            y = 0
         reduce_by_lines:int = skip_lines
-        if y+height > window_height:
-            reduce_by_lines += (y+height)-window_height
+        stripped_lines:int = (y+height)-window_height
+        if stripped_lines > 0:
+            reduce_by_lines += stripped_lines
+            height -= stripped_lines
+        if height <= 0:
+            return
 
         skip_cols:int = 0
         if x < 0:
             skip_cols -= x
+            width += x
+            x = 0
         reduce_by_cols:int = skip_cols
-        if x+width > window_width:
-            reduce_by_cols += (x+width)-window_width
+        stripped_cols:int = (x+width)-window_width
+        if stripped_cols > 0:
+            reduce_by_cols += stripped_cols
+            width -= stripped_cols
+        if width <= 0:
+            return
 
-        if reduce_by_lines == 0 and reduce_by_cols == 0:
+        if reduce_by_lines <= 0 and reduce_by_cols <= 0:
             self.display.wgl_blit(image, x, y)
             return
 
         if reduce_by_lines > 0:
-            height -= reduce_by_lines
-            if height <= 0:
-                return
             croppedy:VerticalCropStream = self._crop_v_stream
             croppedy._setup(image, skip_lines, height)
             image = croppedy
-            y += skip_lines
 
         if reduce_by_cols > 0:
-            width -= reduce_by_cols
-            if width <= 0:
-                return
             croppedx:HorizontalCropStream = self._crop_h_stream
             croppedx._setup(image, skip_cols, width)
             image = croppedx
-            x += skip_cols
 
         self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]+y)
         image.reset()
@@ -1458,7 +1354,7 @@ class WatchGraphics():
 
     # Draw a line using polar coordinates
     @micropython.native
-    def draw_line_polar(self, color:int, x:int, y:int, theta:int, r0:int, r1:int, width:int):
+    def draw_line_polar(self, color:int, width:int, x:int, y:int, theta:int, r0:int, r1:int):
         theta2:float = theta*_C_TO_RADIANS
         xdelta:float = math.sin(theta2)
         ydelta:float = math.cos(theta2)
@@ -1466,19 +1362,19 @@ class WatchGraphics():
         x1:int = x + int(xdelta * r1)
         y0:int = x - int(ydelta * r0)
         y1:int = x - int(ydelta * r1)
-        self.draw_line(x0, y0, x1, y1, width, color)
+        self.draw_line(color, width, x0, y0, x1, y1)
 
 
     # Get bounding box of a string drawn on the screen
     @micropython.native
     def string_bounding_box(self, s:str) -> tuple[int, int]:
-        font:_LegacyFontWrapper = self._font
-        height:int = font.height
+        font:WaspFontStream = self._font
+        height:int = font._font_height
         width:int = 0
         for c in s:
-            cpx = font.get_ch(c)
-            cw2:int = int(cpx.width)
-            ch2:int = int(cpx.height)
+            font._set_ch(c)
+            cw2:int = int(font.width)
+            ch2:int = int(font.height)
             width += cw2
             if ch2 > height:
                 height = ch2
@@ -1491,9 +1387,9 @@ class WatchGraphics():
     def draw_string(self, color:int, s:str, x:int, y:int):
         window_width:int = self.width
         window_height:int = self.height
-        font:_LegacyFontWrapper = self._font
-        font.set_fgcolor(color)
-        font_height = font.height
+        font:WaspFontStream = self._font
+        font._set_color(1, color)
+        font_height = font._font_height
 
         if y >= window_height:
             return
@@ -1503,15 +1399,16 @@ class WatchGraphics():
             return
 
         for c in s:
-            cpx = font.get_ch(c)
-            cw:int = int(cpx.width)
-            ch:int = int(cpx.height)
+            font._set_ch(c)
+            cw:int = int(font.width)
+            ch:int = int(font.height)
             if x+cw <= 0:
                 x += cw
                 continue
             if x >= window_width:
                 break
-            self.blit(cpx, x, y)
+            self.blit(font, x, y)
+            x += cw
 
     def draw_string_a(self, color:int, s:str, x:int, y:int, align:int):
         (rw, rh) = self.string_bounding_box(s)
@@ -1549,13 +1446,7 @@ class DummyImageStream():
         return self._remaining
     def reset(self):
          self._remaining = self.width*self.height
-    def skip_pixels(self, n:int):
-        if n > self._remaining:
-            n = self._remaining
-        if n <= 0:
-            return
-        self._remaining -= n
-    def read_pixels(self, buf:memoryview, n:int, offset:int) -> int:
+    def read_pixels(self, read:bool, buf:memoryview, n:int, offset:int) -> int:
         if n > self._remaining:
             n = self._remaining
         if n <= 0:
