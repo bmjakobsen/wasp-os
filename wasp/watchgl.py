@@ -3,7 +3,6 @@ from array import array
 import math
 import fonts.sans24
 import builtins
-#from time import ticks_ms, ticks_add, ticks_diff
 
 
 
@@ -45,6 +44,8 @@ except (ImportError, AttributeError):
 
 
 TILE_SIZE = const(16)                       # Size of tiles on the screen, all components must be aligned to tiles
+"""Constant that determines the alignment of components on the screen
+"""
 
 _MAX_TILES_WIDTH = const(16)
 _MAX_TILES_HEIGHT = const(20)
@@ -59,7 +60,6 @@ try:
     from typing import Protocol
 except ImportError:
     Protocol = object           # type: ignore[assignment]
-
 
 
 
@@ -111,45 +111,80 @@ def _array_get_int_type(n:int, unsigned:bool=False) -> str:
         return ctype
     raise Exception("Unable to get fitting ctype")
 
+ARRAY_TYPE_U8 = _array_get_int_type(8, unsigned=True)
+ARRAY_TYPE_U16 = _array_get_int_type(16, unsigned=True)
+ARRAY_TYPE_I32 = _array_get_int_type(32, unsigned=False)
 
-
-
-
-
-COLORFORMAT_RGB565 = const(128)
-COLORFORMAT_RGB565_R = const(129)
 
 
 DIRECTION_UP = const(0)
+"""Constant that represents the direction up
+"""
 DIRECTION_DOWN = const(1)
+"""Constant that represents the direction down
+"""
 DIRECTION_LEFT = const(2)
+"""Constant that represents the direction left
+"""
 DIRECTION_RIGHT = const(3)
+"""Constant that represents the direction right
+"""
 
 ALIGNMENT_CENTER = const(0)
+"""Constant that represents alignment to the center
+"""
 ALIGNMENT_LEFT = const(1)
+"""Constant that represents alignment to the left
+"""
 ALIGNMENT_RIGHT = const(2)
+"""Constant that represents alignment to the right
+"""
 
 
 
 class ImageStream(Protocol):
+    """Base Protocol class for ImageStreams
+    :ivar width:
+    :ivar height:
+    """
     width: int
     height: int
     # Reset Stream, or restart it
     def reset(self):
+        """Reset/Restart a ImageStream
+        """
         pass
 
-    # Read n Pixels, into the buffer at the given offset, returns number of pixels read. Offset is in pixels
-    # The streams signals that it is emptry by returning a number smaller than the number of requested pixels
-    # The stream is never allowed to return less pixels than requested, while the stream has not reached its end
-
-    # A Reader can expect that a stream does not have too many pixels, or that the number of remaining pixels changes unless by the amount specified in skip_pixels or when reading_pixels
-
     def read_pixels(self, read:bool, buf:memoryview, n:int, offset:int) -> int:
+        """Read or Skip up to n pixels from the image Stream, and return the number of pixels
+        If read is True, pixels are read into buf, starting at offset.
+        It should always read n pixels, if there are n pixels remaining, if less are read it means that the stream is empty.
+
+        :param read: Set to True if pixels should be read, and not skipped
+        :type read: bool
+        :param buf: Target buffer for reading pixels
+        :type buf: memoryview
+        :param n: Max Number of Pixels to read/skip
+        :type n: int
+        :param offset: Starting location into buf when reading
+        :type offset: int
+        :return: Number of Skipped/Read Pixels
+        :rtype: int
+        """
         return -1
-    # Get Remaining number of pixels, should only be used in a few cases, like ensuring the stream has enough pixels before starting to read it, as it can be slow.
     def get_remaining(self) -> int:
+        """Return the number of remaining Pixels in Stream.
+
+        :return: Number of remaining pixels in Stream
+        :rtype: int
+        """
         return -1
     def info(self) -> str:
+        """Return a Info String for the Stream, only used in debugging.
+
+        :return: Info String
+        :rtype: str
+        """
         return ""
 
 _DUMMY_BUFFER:memoryview = memoryview(bytearray(16))
@@ -161,10 +196,9 @@ def _skip_pixels(s, n:int):
 
 _VSCROLL_STRIPE_SIZE_REDUCTION = const(1)
 class DisplaySpec():
-    def __init__(self, width:int, height:int, color_format:int, scroll_directions:frozenset[int]=frozenset([]), vscroll_stripe_size:int=0):
+    def __init__(self, width:int, height:int, scroll_directions:frozenset[int]=frozenset([]), vscroll_stripe_size:int=0):
         self.width:int = width
         self.height:int = height
-        self.color_format:int = color_format
         self.max_dimension:int = width
         self.min_dimension:int = height
 
@@ -211,15 +245,46 @@ class DisplaySpec():
 
 
 class DisplayProtocol(Protocol):
+    """Base Protocol class for a display driver
+
+    :ivar spec: DisplaySpec Object containing Display Specification
+    """
     spec: DisplaySpec
 
     def wgl_vscroll(self, pixels:int):
+        """Scroll the Screen vertically. To scroll up specify positive amount, For down negative amount.
+
+        :param pixels: Number of Pixels to scroll and Direction.
+        :type pixels: int
+        """
         pass
 
     def wgl_fill(self, color:int, x:int, y:int, width:int, height:int):
+        """Fill a rectangle on the screen with the given color
+
+        :param color: Color to use
+        :type color: int
+        :param x: x coordinate
+        :type x: int
+        :param y: y coordinate
+        :type y: int
+        :param width: Width of the Area to fill
+        :type width: int
+        :param height: Height of the Area to fill
+        :type height: int
+        """
         pass
     # The Function
     def wgl_blit(self, image:ImageStream, x:int, y:int):
+        """Blit an ImageStream to the Screen at the given position
+
+        :param image: Image to be blit to the screen
+        :type image: ImageStream
+        :param x: x coordinate
+        :type x: int
+        :param y: y coordinate
+        :type y: int
+        """
         pass
 
 
@@ -228,6 +293,8 @@ class DisplayProtocol(Protocol):
 
 
 ARROFF = const(0x10000)
+"""Internally used constants, is added to some values stored into arrays, and subtracted after reading them because viper doesnt handle negative values correctly
+"""
 
 _SX_WIDTH = const(0)
 _SX_HEIGHT = const(1)
@@ -237,7 +304,16 @@ _SX_REMAINING = const(2)
 class VerticalCropStream():
     _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
     def __init__(self, instream:ImageStream, skip:int, height:int):
-        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(3*4)))
+        """ImageStream to vertically crop a different ImageStream,
+
+        :param instream: Image to be cropped
+        :type instream: ImageStream
+        :param skip: Number of rows to skip at the top of the new image
+        :type skip: int
+        :param height: New Height of the Image
+        :type height: int
+        """
+        self._extra_state:memoryview = memoryview(array(ARRAY_TYPE_I32, bytearray(3*4)))
         self._setup(instream, skip, height)
     def _setup(self, instream:ImageStream, skip:int, height:int):
         self.width:int = instream.width
@@ -253,9 +329,7 @@ class VerticalCropStream():
         self._pixels_n:int = self.height*self.width
         self._skip:int = skip*self.width
 
-        _skip_pixels(self._instream, self._skip)
-        self._extra_state[_SX_REMAINING] = self._pixels_n
-        assert(self._instream.get_remaining() >= self._pixels_n)
+        self.reset()
     def reset(self):
         self._instream.reset()
         _skip_pixels(self._instream, self._skip)
@@ -286,9 +360,17 @@ _HCS_REM_IN_L = const(4)
 
 # Image Stream used to wrap another image stream and crop it horizontally, by specifiying the new reduced width, and the number of columns skipped at the start
 class HorizontalCropStream():
-    _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
     def __init__(self, instream:ImageStream, skip:int, width:int):
-        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(5*4)))
+        """ImageStream to vertically crop a different ImageStream,
+
+        :param instream: Image to be cropped
+        :type instream: ImageStream
+        :param skip: Number of columns to skip on the left of the new image
+        :type skip: int
+        :param width: New width of the image
+        :type width: int
+        """
+        self._extra_state:memoryview = memoryview(array(ARRAY_TYPE_I32, bytearray(5*4)))
         self._setup(instream, skip, width)
     def _setup(self, instream:ImageStream, skip:int, width:int):
         self.height:int = instream.height
@@ -315,11 +397,7 @@ class HorizontalCropStream():
         self._extra_state[_SX_HEIGHT] = self.height
         self._extra_state[_HCS_SKIP] = self._skip
 
-
-        self._extra_state[_SX_REMAINING] = self._pixels_n
-        self._extra_state[_HCS_REM_IN_L] = self.width
-        assert(self._instream.get_remaining() >= self._instream_required)
-        _skip_pixels(self._instream, self._skip_at_start)
+        self.reset()
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
@@ -370,24 +448,8 @@ class HorizontalCropStream():
         return "HORIZONTAL_CROP_STREAM("+str(self._skip_at_start)+", "+str(self.width)+", "+self._instream.info()+")"
 
 
-_DEFAULT_TEXT_FGCOLOR:int = const(0xFFFF)
-_PALETTE2_INITALIZER = [0, 0xFFFF]
-_PALETTE4_INITALIZER = [0, 0x4a69, 0x7bef, 0xFFFF]
 
 
-
-#Temporarily Non-Native
-#@micropython.viper
-def _convert_color_to_format(format:int, color:int) -> int:
-    color &= 0xFFFF
-    if format == COLORFORMAT_RGB565:
-        return color
-    elif format == COLORFORMAT_RGB565_R:
-        color2:int = (color>>8)&0xFF
-        color = (color<<8)&0xFF00
-        return color | color2
-    else:
-        raise Exception("Unknown Color format specified")
 
 
 _MIS_CBYTE = const(3)
@@ -397,14 +459,11 @@ _MIS_BITSEL = const(6)
 _MIS_WEXTEND = const(1)
 # Streamer for reading a memoryview (1 byte per element) as an uncompressed image, with one bit per pixel
 class WaspFontStream():
-    _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
-    _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
-    def __init__(self, screen_color_format:int, font):
-        self._color_format:int = screen_color_format
-        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER+_PALETTE2_INITALIZER))
-        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(7*4)))
-        for i in range(4):
-            self._palette[i] = _convert_color_to_format(screen_color_format, self._palette[i])
+    def __init__(self, font, palette:list[int]=[0, 0xFFFF]):
+        if len(palette) != 2:
+            raise Exception("Given Palette must contain two values")
+        self._palette:memoryview = memoryview(array(ARRAY_TYPE_U16, palette+palette))
+        self._extra_state:memoryview = memoryview(array(ARRAY_TYPE_I32, bytearray(7*4)))
         self._current_char = 'T'
         self._set_font(font)
     def _set_font(self, font):
@@ -437,10 +496,8 @@ class WaspFontStream():
 
     @micropython.viper
     def _set_color(self, color:int, bgcolor:int):
-        cf:int = int(self._color_format)
-        fconv = _convert_color_to_format
-        self._palette[0] = fconv(cf, bgcolor)
-        self._palette[1] = fconv(cf, color)
+        self._palette[0] = bgcolor
+        self._palette[1] = color
 
     def reset(self):
         # Set State required for reading the image
@@ -520,14 +577,24 @@ _MRIS_COLOR = const(3)
 _MRIS_RLEN = const(4)
 _MRIS_INDEX = const(5)
 class WaspRle1ImageStream():
-    _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
-    _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
-    def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
-        self._color_format:int = screen_color_format
-        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE2_INITALIZER))
-        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
+    def __init__(self, raw_data:memoryview, width:int, height:int, palette:list[int]=[0, 0xFFFF]):
+        """ImageStream for displaying a one bit RLE Image
+
+        :param raw_data: Raw Data of the image
+        :type raw_data: memoryview
+        :param width: Width of the image
+        :type width: int
+        :param height: Height of the image
+        :type height: int
+        :param palette: Palette to be used for the image, must have a length of 2, defaults to [0, 0xFFFF]
+        :type palette: list[int], optional
+        """
+        if len(palette) != 2:
+            raise Exception("Given Palette must contain two values")
+        self._palette:memoryview = memoryview(array(ARRAY_TYPE_U16, palette))
+        self._extra_state:memoryview = memoryview(array(ARRAY_TYPE_I32, bytearray(6*4)))
         for i in range(2):
-            self._palette[i] = _convert_color_to_format(screen_color_format, self._palette[i])
+            self._palette[i] = self._palette[i]
         self._setup(raw_data, width, height)
     def _setup(self, raw_data:memoryview, width:int, height:int):
         if width <= 0 or height <= 0:
@@ -548,9 +615,16 @@ class WaspRle1ImageStream():
         return self._extra_state[_SX_REMAINING]
 
     def _set_color(self, n:int, color:int):
+        """Set color of the palette, where n is the palette index.
+
+        :param n: Index (0-3) of the color to change
+        :type n: int
+        :param color: New Color
+        :type color: int
+        """
         if n < 0 or n > 1:
             raise Exception("Invalid Palette Index")
-        self._palette[n] = _convert_color_to_format(self._color_format, color)
+        self._palette[n] = color
 
     def reset(self):
         # Set State required for reading the image
@@ -633,7 +707,7 @@ class WaspRle1ImageStream():
 
 
 @micropython.viper
-def _clut8_rgb565(color_format:int, i: int) -> int:
+def _clut8_rgb565(i: int) -> int:
     if i < 216:
         rgb565  = (( i  % 6) * 0x33) >> 3
         rg = i // 6
@@ -651,7 +725,7 @@ def _clut8_rgb565(color_format:int, i: int) -> int:
         gr5 = gr6 >> 1
         rgb565 = (gr5 << 11) + (gr6 << 5) + gr5
 
-    return int(_convert_color_to_format(color_format, rgb565))
+    return rgb565
 
 
 _R2IS_COLOR = const(3)
@@ -660,15 +734,23 @@ _R2IS_RLEN = const(5)
 _R2IS_INDEX = const(6)
 _R2IS_MAXINDEX = const(7)
 class WaspRle2ImageStream():
-    _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
-    _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
-    def __init__(self, screen_color_format:int, raw_data:memoryview, width:int, height:int):
-        self._color_format:int = screen_color_format
-        self._palette:memoryview = memoryview(array(self._16BIT_UNSIGNED_INT, _PALETTE4_INITALIZER+_PALETTE4_INITALIZER))
-        self._extra_state:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(8*4)))
+    def __init__(self, raw_data:memoryview, width:int, height:int, palette:list[int]=[0, 0x4a69, 0x7bef, 0xFFFF]):
+        """ImageStream for displaying a two bit RLE Image 
+
+        :param raw_data: Raw Data of the image
+        :type raw_data: memoryview
+        :param width: Width of the image
+        :type width: int
+        :param height: Height of the image
+        :type height: int
+        :param palette: Palette to be used for the image, must have a length of 4, defaults to [0, 0x4a69, 0x7bef, 0xFFFF]
+        :type palette: list[int], optional
+        """
+        if len(palette) != 4:
+            raise Exception("Given Palette must contain four values")
+        self._palette:memoryview = memoryview(array(ARRAY_TYPE_U16, palette+palette))
+        self._extra_state:memoryview = memoryview(array(ARRAY_TYPE_I32, bytearray(8*4)))
         self._dummy_buf:memoryview = memoryview(bytearray(1))
-        for i in range(8):
-            self._palette[i] = _convert_color_to_format(screen_color_format, self._palette[i])
         self._setup(raw_data, width, height)
     def _setup(self, raw_data:memoryview, width:int, height:int):
         if width <= 0 or height <= 0:
@@ -691,11 +773,17 @@ class WaspRle2ImageStream():
         return self._extra_state[_SX_REMAINING]
 
     def _set_color(self, n:int, color:int):
+        """Set color of the palette, where n is the palette index.
+
+        :param n: Index (0-3) of the color to change
+        :type n: int
+        :param color: New Color
+        :type color: int
+        """
         if n < 0 or n > 3:
             raise Exception("Invalid Palette Index")
-        c = _convert_color_to_format(self._color_format, color)
-        self._palette[n] = c
-        self._palette[n+4] = c
+        self._palette[n] = color
+        self._palette[n+4] = color
 
     def reset(self):
         # Set State required for reading the image
@@ -767,7 +855,7 @@ class WaspRle2ImageStream():
                 if rlen == 0:
                     index += 1
                     fbyte = raw_data[index]
-                    palette[nxcolor] = int(clut8_rgb565(self._color_format, fbyte))&0xFFFF
+                    palette[nxcolor] = int(clut8_rgb565(fbyte))&0xFFFF
                     nxcolor += 1
                     if nxcolor > 3:
                         nxcolor = 1
@@ -793,12 +881,26 @@ class WaspRle2ImageStream():
 
 
 
-# The Draw Function of a component takes the reference to the component, the state dict, and a reference to the WatchGraphics Object
-def _draw_function_sample(com:'Component', state:dict[str, object], wgl:'WatchGraphics'):
-    return None
-
 class Component():
     def __init__(self, x:int, y:int, width:int, height:int, draw_function, state:dict[str, object]={}, font=None):
+        """A Component
+
+        :param x: _description_
+        :type x: int
+        :param y: _description_
+        :type y: int
+        :param width: _description_
+        :type width: int
+        :param height: _description_
+        :type height: int
+        :param draw_function: Function that is called to draw the component
+        :type draw_function: Callable[[Component, dict[str, object], WatchGraphics], None]
+        :param state: State Initializer, defaults to {}
+        :type state: dict[str, object], optional
+        :param font: Font to be used when this component draws text, optional. If unspecified inherit font from screen
+        :type font: FontModule, optional
+        :raises Exception: Invalid Sizing of component, or Component is unaligned
+        """
         if (x < 0 or x%TILE_SIZE != 0 or
           y < 0 or y%TILE_SIZE != 0 or
           width <= 0 or width%TILE_SIZE != 0 or
@@ -813,7 +915,7 @@ class Component():
         self._font = font
 
 
-        self.draw = draw_function
+        self._draw = draw_function
         self._state:dict[str, object] = {}
         # Only assign value of state to _state if it is not the default value, else assign to empty dict
         # This is because, if the default value where assigned, the updates to the dict would also happen
@@ -855,15 +957,11 @@ _SC_MAX_AHEAD = const(5)
 _SC_YMAP_NULL_ENTRY = const(_MAX_TILES_HEIGHT*2)
 
 class Screen():
-    _8BIT_UNSIGNED_INT = _array_get_int_type(8, unsigned=True)
-    _16BIT_UNSIGNED_INT = _array_get_int_type(16, unsigned=True)
-    _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
-
     _YMAP_INITIALIZER = [0, _SC_YMAP_NULL_ENTRY]*(_MAX_TILES_HEIGHT)+[0]
 
 
-    _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(_16BIT_UNSIGNED_INT, bytearray(_MAX_TILES_HEIGHT*2)))
-    def __init__(self, bgcolor:int, wgl:'WatchGraphics', components:list['Component'], font=fonts.sans24):
+    _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(ARRAY_TYPE_U16, bytearray(_MAX_TILES_HEIGHT*2)))
+    def __init__(self, bgcolor:int, wgl:'WatchGraphics', components:list['Component'], font=fonts.sans24):   
         if len(components) > 127:
             raise Exception("Too many components")
         self.bgcolor:int = bgcolor&0xFF
@@ -889,7 +987,7 @@ class Screen():
         y_chin:int = display_spec.y_chin
 
 
-        self._screen_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(6*4)))
+        self._screen_info:memoryview = memoryview(array(ARRAY_TYPE_I32, bytearray(6*4)))
         self._screen_info[_SC_WIDTH] = self.display_width
         self._screen_info[_SC_HEIGHT] = self.display_height
         self._screen_info[_SC_THEIGHT] = tiled_height
@@ -950,7 +1048,7 @@ class Screen():
         last_used_offset:int = -1
         last_used_list:list[int] = []
         next_offset:int = _SC_YMAP_NULL_ENTRY+1
-        com_map_a:array = array(self._8BIT_UNSIGNED_INT, self._YMAP_INITIALIZER)
+        com_map_a:array = array(ARRAY_TYPE_U8, self._YMAP_INITIALIZER)
         ri:int = 0
         for r in com_map_y:
             r.append(0)
@@ -977,7 +1075,7 @@ class Screen():
 
 
         self.components:list['Component'] = ncomponents
-        self.update_array = memoryview(array(self._16BIT_UNSIGNED_INT, bytearray(9*2)))
+        self.update_array = memoryview(array(ARRAY_TYPE_U16, bytearray(9*2)))
     @micropython.viper
     def notify_component_update(self, cid:int):
         update_array:ptr16 = ptr16(self.update_array)
@@ -1038,7 +1136,7 @@ class Screen():
                 cid = id_block_off+id_sub
                 com = self.components[cid]
                 set_com_context(com._font, X_OFFSET+int(com.x), int(com.y), com.width, com.height, 0)
-                com_draw = com.draw
+                com_draw = com._draw
                 com_draw(com, com._state, wgl)
                 com.dirty = builtin_false
         update_array[0] = 0
@@ -1060,7 +1158,7 @@ class Screen():
             update_array[n] = 0
         for com in self.components:
             set_com_context(com._font, X_OFFSET+int(com.x), int(com.y), com.width, com.height, 0)
-            com_draw = com.draw
+            com_draw = com._draw
             com_draw(com, com._state, wgl)
             com.dirty = builtin_false
 
@@ -1104,23 +1202,23 @@ class Screen():
         scroll_next_pixel = ticks_add(ticks_ms(), TICKS_BETWEEN_SCROLL)
         scroll_remaining:int = HEIGHT
 
+        current_draw_line:int = HEIGHT
+        FIRST_ROW:int = 0
+        LAST_ROW:int = TILED_HEIGHT-1
+        ypos:int = -16
+        YPOS_CHANGE:int = TILE_SIZE
+        SCROLL_D:int = -1
+        CDL_OFFSET:int = 0
         if scroll_direction == DIRECTION_UP:
-            current_draw_line:int = HEIGHT
-            FIRST_ROW:int = 0
-            LAST_ROW:int = TILED_HEIGHT-1
-            ypos:int = -16
-            YPOS_CHANGE:int = TILE_SIZE
-            SCROLL_D:int = -1
-            CDL_OFFSET:int = 0
             SCROLL_RANGE = range(0, TILED_HEIGHT)
         elif scroll_direction == DIRECTION_DOWN:
-            current_draw_line:int = 0
-            FIRST_ROW:int = TILED_HEIGHT-1
-            LAST_ROW:int = 0
-            ypos:int = (TILED_HEIGHT*16)
-            YPOS_CHANGE:int = 0-TILE_SIZE
-            SCROLL_D:int = 1
-            CDL_OFFSET:int = 0-TILE_SIZE
+            current_draw_line = 0
+            FIRST_ROW = TILED_HEIGHT-1
+            LAST_ROW = 0
+            ypos = (TILED_HEIGHT*16)
+            YPOS_CHANGE = 0-TILE_SIZE
+            SCROLL_D = 1
+            CDL_OFFSET = 0-TILE_SIZE
             SCROLL_RANGE = range(TILED_HEIGHT-1, -1, -1)
             if Y_CHIN > 0:
                 fill(bgcolor, 0, current_draw_line-Y_CHIN, WIDTH, Y_CHIN)
@@ -1149,7 +1247,7 @@ class Screen():
                 com_id:int = ymap[row_offset]
                 row_offset += 1
                 com = self.components[com_id-1]
-                com_draw = com.draw
+                com_draw = com._draw
                 yshift:int = int(com.y)-ypos
                 set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line+CDL_OFFSET, com.width, TILE_SIZE, yshift)
                 com_draw(com, com._state, wgl)
@@ -1224,13 +1322,10 @@ _DEFAULT_BGCOLOR = const(0)
 
 _C_TO_RADIANS:float = (math.pi / 180)
 class WatchGraphics():
-    _BIT_UNSIGNED_INT = _array_get_int_type(8, unsigned=True)
-    _32BIT_SIGNED_INT = _array_get_int_type(32, unsigned=False)
-
     def __init__(self, display:DisplayProtocol, gc_collect:bool=True):
         self.display:DisplayProtocol = display
 
-        self._font:WaspFontStream = WaspFontStream(display.spec.color_format, fonts.sans24)
+        self._font:WaspFontStream = WaspFontStream(fonts.sans24)
 
         self.bgcolor:int = _DEFAULT_BGCOLOR
 
@@ -1244,7 +1339,7 @@ class WatchGraphics():
         self.width:int = self._display_width
         self.height:int = self._display_height
 
-        self._window_info:memoryview = memoryview(array(self._32BIT_SIGNED_INT, bytearray(5*4)))
+        self._window_info:memoryview = memoryview(array(ARRAY_TYPE_I32, bytearray(6*4)))
 
         # Setup window info
         self._window_info[_WGWI_WIDTH] = self.width
@@ -1323,14 +1418,32 @@ class WatchGraphics():
 
 
 
+    def create_screen(self, bgcolor:int, components:list['Component'], font=fonts.sans24) -> 'Screen':
+        """Create a screen.
 
-
-    def create_screen(self, bgcolor:int, components:list['Component'], font=fonts.sans24):
+        :param bgcolor: Background Color for the screen
+        :type bgcolor: int
+        :param components: List of Components
+        :type components: list[Component]
+        :param font: Default font for the screen, can be overriden in individual Components, defaults to fonts.sans24
+        :type font: FontModule, optional
+        :return: New Screen
+        :rtype: Screen
+        """
         return Screen(bgcolor, self, components, font=font)
 
     # Bit image to the screen at position, will automatically be cropped if it goes out of bounds
     @micropython.viper
     def blit(self, image, x:int, y:int):
+        """Blit an Image to the Screen, will be cropped to fit inside of component
+
+        :param image: Image to be blit to the screen
+        :type image: ImageStream
+        :param x: x coordinate
+        :type x: int
+        :param y: y coordinate
+        :type y: int
+        """
         window_info:ptr32 = ptr32(self._window_info)
 
         y += window_info[_WGWI_YSHIFT]-ARROFF
@@ -1364,10 +1477,6 @@ class WatchGraphics():
         if width <= 0:
             return
 
-        if reduce_by_lines <= 0 and reduce_by_cols <= 0:
-            self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]-ARROFF+y)
-            return
-
         if reduce_by_lines > 0:
             croppedy:VerticalCropStream = self._crop_v_stream
             croppedy._setup(image, skip_lines, height)
@@ -1389,6 +1498,19 @@ class WatchGraphics():
     # Fill an area on the screen, will automatically be cropped to not leave the specified component
     @micropython.viper
     def fill(self, color:int, x:int, y:int, width:int, height:int):
+        """Fill a rectangular Area on the screen with a given color
+
+        :param color: Color to be used when filling the rectangle
+        :type color: int
+        :param x: x coordinate
+        :type x: int
+        :param y: y coordinate
+        :type y: int
+        :param width: width of the rectangle to be filled
+        :type width: int
+        :param height: height of the rectangle to be filled
+        :type height: int
+        """
         window_info:ptr32 = ptr32(self._window_info)
 
         y += window_info[_WGWI_YSHIFT]-ARROFF
@@ -1418,6 +1540,21 @@ class WatchGraphics():
     # into bigger operations to draw orthogonal lines.
     @micropython.viper
     def draw_line(self, color:int, width:int, x0:int, y0:int, x1:int, y1:int):
+        """Draw a line between to points, with a given width and color
+
+        :param color: Color of the line
+        :type color: int
+        :param width: Width of the line
+        :type width: int
+        :param x0: x coordinate of point 0
+        :type x0: int
+        :param y0: y coordinate of point 0
+        :type y0: int
+        :param x1: x coordinate of point 1
+        :type x1: int
+        :param y1: y coordinate of point 1
+        :type y1: int
+        """
         # Line Thickness offset
         ltoff:int = (width-1)//2
 
@@ -1562,19 +1699,43 @@ class WatchGraphics():
 
     # Draw a line using polar coordinates
     def draw_line_polar(self, color:int, width:int, x:int, y:int, theta:int, r0:int, r1:int):
+        """Draw a line using polar coordinates, with a given width and color.
+
+        :param color: Color of the line
+        :type color: int
+        :param width: Width of the line
+        :type width: int
+        :param x: x corrdinate of the origin
+        :type x: int
+        :param y: y corrdinate of the origin
+        :type y: int
+        :param theta: Angle in Degrees
+        :type theta: int
+        :param r0: Radius of the start of the line
+        :type r0: int
+        :param r1: Radius of the end of the line
+        :type r1: int
+        """
         theta2:float = theta*_C_TO_RADIANS
         xdelta:float = math.sin(theta2)
         ydelta:float = math.cos(theta2)
         x0:int = x + int(xdelta * r0)
         x1:int = x + int(xdelta * r1)
-        y0:int = x - int(ydelta * r0)
-        y1:int = x - int(ydelta * r1)
+        y0:int = y - int(ydelta * r0)
+        y1:int = y - int(ydelta * r1)
         self.draw_line(color, width, x0, y0, x1, y1)
 
 
     # Get bounding box of a string drawn on the screen
     @micropython.native
     def string_bounding_box(self, s:str) -> tuple[int, int]:
+        """Calculate the bounding box of a string
+
+        :param s: The String
+        :type s: str
+        :return: width and height of the bounding box, as a tuple
+        :rtype: tuple[int, int]
+        """
         font:WaspFontStream = self._font
         height:int = font._font_height
         width:int = 0
@@ -1593,6 +1754,19 @@ class WatchGraphics():
     #Temporarily Non-Native
     #@micropython.native
     def draw_string(self, color:int, bgcolor:int, s:str, x:int, y:int):
+        """Draw a String with a given FG and BG Color,
+
+        :param color: Foreground Color
+        :type color: int
+        :param bgcolor: Background Color
+        :type bgcolor: int
+        :param s: The String
+        :type s: str
+        :param x: x corrdinate
+        :type x: int
+        :param y: y coordinate
+        :type y: int
+        """
         window_width:int = self.width
         window_height:int = self.height
         font:WaspFontStream = self._font
@@ -1622,6 +1796,23 @@ class WatchGraphics():
             x += cw
 
     def draw_string_a(self, color:int, bgcolor:int, s:str, x:int, y:int, width:int, align:int):
+        """Draw a String aligned inside of a box. And fill the rest of the box
+
+        :param color: Foreground Color
+        :type color: int
+        :param bgcolor: Background Color
+        :type bgcolor: int
+        :param s: The String
+        :type s: str
+        :param x: x coordinate
+        :type x: int
+        :param y: y coordinate
+        :type y: int
+        :param width: Width of the bounding box
+        :type width: int
+        :param align: Alignment of the Text inside of the box, can be ALIGNMENT_CENTER, ALIGNMENT_LEFT, ALIGNMENT_RIGHT
+        :type align: int
+        """
         (rw, rh) = self.string_bounding_box(s)
         if rw >= width:
             self.draw_string(color, bgcolor, s, x, y)
@@ -1650,16 +1841,6 @@ class WatchGraphics():
 
 
 
-class DummyDisplay(DisplayProtocol):
-    def __init__(self, width:int, height:int, color_format:int=COLORFORMAT_RGB565):
-        self.spec = DisplaySpec(width, height, color_format, scroll_directions=frozenset([]))
-    def wgl_vscroll(self, pixels:int):
-        pass
-    def wgl_fill(self, color:int, x:int, y:int, width:int, height:int):
-        print("FILL "+hex(color)+", X:"+str(x)+", Y:"+str(y)+", W:"+str(width)+", H:"+str(height))
-    def wgl_blit(self, image:ImageStream, x:int, y:int):
-        print("BLIT IMAGE:    X:"+str(x)+", Y:"+str(y)+", W:"+str(image.width)+", H:"+str(image.height))
-        print("  "+image.info())
 class DummyImageStream():
     def __init__(self, width:int, height:int):
         self.width:int = width
@@ -1680,22 +1861,13 @@ class DummyImageStream():
         return "DUMMY_STREAM("+str(self.width)+", "+str(self.height)+")"
 
 
-
-
-if __name__ == '__main__':
-    dis = DummyDisplay(240, 240)
-    dg = WatchGraphics(dis)
-    print("Draw Line 1")
-    dg.draw_line(0, 1,  0, 1,  0, 1)
-    print("Draw Line 2")
-    dg.draw_line(0, 1,  0, 1,  6, 4)
-    print("Draw Line 3")
-    dg.draw_line(0, 3,  -1, -1,  6, 4)
-    print("Done")
-
-    img = DummyImageStream(240, 240)
-    img2 = DummyImageStream(10, 10)
-
-    dg.blit(img, 10, 10)
-    dg.blit(img2, 10, 10)
-    dg.blit(img2, 239, 239)
+class DummyDisplay(DisplayProtocol):
+    def __init__(self, width:int, height:int):
+        self.spec = DisplaySpec(width, height, scroll_directions=frozenset([]))
+    def wgl_vscroll(self, pixels:int):
+        pass
+    def wgl_fill(self, color:int, x:int, y:int, width:int, height:int):
+        print("FILL "+hex(color)+", X:"+str(x)+", Y:"+str(y)+", W:"+str(width)+", H:"+str(height))
+    def wgl_blit(self, image:ImageStream, x:int, y:int):
+        print("BLIT IMAGE:    X:"+str(x)+", Y:"+str(y)+", W:"+str(image.width)+", H:"+str(image.height))
+        print("  "+image.info())

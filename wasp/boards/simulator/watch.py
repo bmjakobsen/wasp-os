@@ -202,7 +202,7 @@ display = ST7789_SPI(240, 240, spi,
         cs=Pin("DISP_CS", Pin.OUT, quiet=True),
         dc=Pin("DISP_DC", Pin.OUT, quiet=True),
         res=Pin("DISP_RST", Pin.OUT, quiet=True))
-display.spec = watchgl.DisplaySpec(display.width, display.height, watchgl.COLORFORMAT_RGB565, scroll_directions=frozenset([watchgl.DIRECTION_UP, watchgl.DIRECTION_DOWN]), vscroll_stripe_size=(320-display.height))
+display.spec = watchgl.DisplaySpec(display.width, display.height, scroll_directions=frozenset([watchgl.DIRECTION_UP, watchgl.DIRECTION_DOWN]), vscroll_stripe_size=(320-display.height))
 wgl = watchgl.WatchGraphics(display)
 drawable = draw565.Draw565(wgl)
 

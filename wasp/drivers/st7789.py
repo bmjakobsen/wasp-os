@@ -224,6 +224,7 @@ class ST7789(object):
         write_data = self.quick_write
         set_window = self.set_window
         PyInt = builtins.int
+        PyInt0 = PyInt(0)
 
         for sec in range(2):
             if sec == 1:
@@ -250,7 +251,7 @@ class ST7789(object):
                 write_data(lbuffer)
             if last_row > 0:
                 last_row <<= 1      # Last row x 2 to get number of bytes instead of number of pixels
-                write_data(lbuffer[PyInt(0):PyInt(last_row)])
+                write_data(lbuffer[PyInt0:PyInt(last_row)])
             quick_end()
 
     #Temporarily Non-Native
@@ -284,6 +285,7 @@ class ST7789(object):
         set_window = self.set_window
         read_pixels = image.read_pixels
         PyInt = builtins.int
+        PyInt0 = PyInt(0)
 
         for sec in range(2):
             if sec == 1:
@@ -307,16 +309,16 @@ class ST7789(object):
                 # Read up to scwidth pixels into the buffer, method returns the number of pixels written
                 n = int(read_pixels(True, lbuffer, r_read, 0))
 
-                #print("Pixels Read:", n, "  ", lbuffer[PyInt(0):PyInt(2*n)].hex(sep=' '))
+                #print("Pixels Read:", n, "  ", lbuffer[PyInt0:PyInt(2*n)].hex(sep=' '))
                 pixels -= n
                 # Number lower than the requested number means end of stream
                 if n < scwidth:
                     if n > 0:
                         n <<= 1         # Number of gotten pixels x2 to get number of gotten bytes
-                        write_data(lbuffer[PyInt(0):PyInt(n)])
+                        write_data(lbuffer[PyInt0:PyInt(n)])
                 else:
                     write_data(lbuffer)
-                if pixels <= 0:
+                if n < r_read or pixels <= 0:
                     break
             quick_end()
 

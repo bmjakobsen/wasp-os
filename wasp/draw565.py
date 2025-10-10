@@ -43,8 +43,8 @@ class Draw565(object):
         self._display_width:int = wgl.display.spec.width
         self._display_height:int = wgl.display.spec.height
 
-        self._rle_stream = WaspRle1ImageStream(wgl.display.spec.color_format, memoryview(b'\x08'), 8, 1)
-        self._rle2_stream = WaspRle2ImageStream(wgl.display.spec.color_format, memoryview(b'\x08'), 8, 1)
+        self._rle_stream = WaspRle1ImageStream(memoryview(b'\x08'), 8, 1)
+        self._rle2_stream = WaspRle2ImageStream(memoryview(b'\x08'), 8, 1)
 
         self._rle_stream._set_color(0, 0)
         self._rle_stream._set_color(1, 0xFFFF)
