@@ -6,12 +6,6 @@ import builtins
 
 
 
-# TODO; Check drawing functions if they use correct yshift, and apply window coordinates correctly
-# TODO: Implement Drawing and Switching of screens
-# TODO: For smooth scrolling it would be required to get the components of a screen efficiently, that overlap with a stripe on the screen.
-# 
-
-
 
 import time
 try:
@@ -911,7 +905,8 @@ class Component():
         self.y:int = y
         self.width:int = width
         self.height:int = height
-        self.dirty = False
+        self._dirty_r:bool = False
+        self._dirty_me:memoryview = None                # type: ignore[assignment]
         self._font = font
 
 
@@ -922,8 +917,24 @@ class Component():
         # In other components
         if len(state) > 0:
             self._state = state
-        self._screen:"Screen" = None        # type: ignore[assignment]
-        self._cid:int = 0
+        self.bound = False
+
+
+    @property
+    def dirty(self) -> bool:
+        dme = self._dirty_me
+        if dme is None:
+            return self._dirty_r
+        return bool(self._dirty_me[0])
+
+    @dirty.setter
+    def dirty(self, v:bool):
+        dme = self._dirty_me
+        if dme is None:
+            self._dirty_r = v
+            return
+        dme[0] = int(v)
+
     # Returns None, if undefined
     def get_var(self, k:str) -> object:
         state = self._state
@@ -932,14 +943,10 @@ class Component():
         return self._state[k]
     def set_var(self, k:str, v:object):
         state = self._state
-        # Only Notify Screen of Update, if the component is not dirty, and the component is part of a screen
-        # And if the component changes, either key is not in state, or value is different
-        # This also sets the dirty flag
-        screen = self._screen
-        if not self.dirty and screen is not None and (k not in state or state[k] != v):
-            screen.notify_component_update(self._cid)
+        # Only set dirty flag if not already dirty, and this changes anything
+        if not self.dirty and (k not in state or state[k] != v):
             self.dirty = True
-        state[k] = v
+        self._state[k] = v
 
 
 _SC_WIDTH = const(0)            # Width of Screen
@@ -996,6 +1003,11 @@ class Screen():
         self._screen_info[_SC_MAX_AHEAD] = display_spec.vscroll_stripe_size
 
 
+
+        dirty_flag_array:memoryview = memoryview(bytearray(len(components)))
+        self._dirty_flag_array:memoryview = dirty_flag_array
+
+
         # The bitfield is used to detect overlaps in components
         # Each array index is a row and each bit says wether that column is occupied by a component
         com_map_y:list[list[int]] = []
@@ -1006,8 +1018,9 @@ class Screen():
 
 
         ncomponents:list['Component'] = []
-        cid:int = 1
+        cid:int = 0
         for c in components:
+            cid += 1
             # Get y range occupied by tile
             cy0:int = (c.y)//TILE_SIZE
             cy1:int = cy0+(c.height//TILE_SIZE)
@@ -1029,16 +1042,17 @@ class Screen():
                     bitfield[cyp] |= 1<<i
 
             # Register this screen to the component so that it nows its id and has a reference to the screen
-            if not c._screen is None:
+            if c.bound:
                 raise Exception("Component given to screen is already part of a screen")
-            c._screen = self
-            c._cid = cid
+            # Give the component a one byte memoryview into the dirty_flag_array
+            c._dirty_me = dirty_flag_array[(cid-1):cid]
+            c.bound = True
+            c._dirty_r = False
 
             if c._font is None:
                 c._font = font
             c.dirty = False
             ncomponents.append(c)
-            cid = cid+1
 
 
 
@@ -1075,92 +1089,53 @@ class Screen():
 
 
         self.components:list['Component'] = ncomponents
-        self.update_array = memoryview(array(ARRAY_TYPE_U16, bytearray(9*2)))
-    @micropython.viper
-    def notify_component_update(self, cid:int):
-        update_array:ptr16 = ptr16(self.update_array)
-
-        byti:int = 1+(cid>>4)
-        biti:int = cid&0xf
-
-        update_array[0] |= 1<<byti
-        update_array[byti] |= 1<<biti
 
 
-    @micropython.viper
     def draw(self):
         if self._full_draw:
             self._draw_full()
             return
 
         wgl = self._wgl
-        update_array:ptr16 = ptr16(self.update_array)
-        set_com_context = wgl._set_component_context
-        builtin_false = builtins.bool(False)
-
-        sc_info:ptr32 = ptr32(self._screen_info)
-        X_OFFSET:int = sc_info[_SC_XOFFSET]
-
-
-        # Use Pointers to set value
-        update_bitfield:int = update_array[0]
-        if update_bitfield == 0:
-            return
-        update_bitfield >>= 1
-        id_block_off:int = -16
-        byti:int = 0
-        while byti < (8+1):
-            id_block_off += 16
-            id_block_used:int = update_bitfield&1
-            byti += 1
-            update_bitfield >>= 1
-
-            if not id_block_used:
-                if update_bitfield == 0:
-                    break
-                continue
-
-            value:int = update_array[byti]&0xFFFF
-            update_array[byti] = 0
-
-            id_sub:int = 0
-            while id_sub < 16:
-                id_sub += 1
-
-                id_used = value&1
-                value >>= 1
-                if not id_used:
-                    if value == 0:
-                        break
-                    continue
-                cid = id_block_off+id_sub
-                com = self.components[cid]
-                set_com_context(com._font, X_OFFSET+int(com.x), int(com.y), com.width, com.height, 0)
-                com_draw = com._draw
-                com_draw(com, com._state, wgl)
-                com.dirty = builtin_false
-        update_array[0] = 0
-
-
-    def _draw_full(self):
-        builtin_false = builtins.bool(False)
-        self._full_draw = builtin_false
-        wgl = self._wgl
-        #update_array:ptr16 = ptr16(self.update_array)
-        update_array:memoryview = self.update_array
         set_com_context = wgl._set_component_context
 
-        #sc_info:ptr32 = ptr32(self._screen_info)
         sc_info:memoryview = self._screen_info
         X_OFFSET:int = sc_info[_SC_XOFFSET]
 
-        for n in range(0, 9):
-            update_array[n] = 0
-        for com in self.components:
+
+        dirty_flag_array:memoryview = self._dirty_flag_array
+        components = self.components
+
+        rng = range(0, len(components))
+        for i in rng:
+            # Skip where component dirty flag is zero, not one
+            if not dirty_flag_array[i]:
+                continue
+            com = components[i]
+            set_com_context(com._font, X_OFFSET+com.x, com.y, com.width, com.height, 0)
+            com_draw = com._draw
+            com_draw(com, com._state, wgl)
+            dirty_flag_array[i] = 0
+
+
+    def _draw_full(self):
+        self._full_draw = False
+        wgl = self._wgl
+        set_com_context = wgl._set_component_context
+
+
+        sc_info:memoryview = self._screen_info
+        X_OFFSET:int = sc_info[_SC_XOFFSET]
+
+        dirty_flag_array:memoryview = self._dirty_flag_array
+        components = self.components
+        rng = range(0, len(components))
+        for i in rng:
+            dirty_flag_array[i] = 0
+            com = components[i]
             set_com_context(com._font, X_OFFSET+int(com.x), int(com.y), com.width, com.height, 0)
             com_draw = com._draw
             com_draw(com, com._state, wgl)
-            com.dirty = builtin_false
 
     def _draw_scroll(self, scroll_direction:int):
         builtin_false = builtins.bool(False)
@@ -1170,6 +1145,7 @@ class Screen():
         ticks_ms = time.ticks_ms            # type: ignore[attr-defined]
         ticks_add = time.ticks_add          # type: ignore[attr-defined]
         ticks_diff = time.ticks_diff        # type: ignore[attr-defined]
+        set_com_context = wgl._set_component_context
 
 
         if scroll_direction != DIRECTION_UP and scroll_direction != DIRECTION_DOWN:
@@ -1187,12 +1163,12 @@ class Screen():
         MAX_AHEAD:int = sc_info[_SC_MAX_AHEAD]
         bgcolor:int = self.bgcolor
 
-        #update_array:ptr16 = ptr16(self.update_array)
-        update_array:memoryview = self.update_array
-        set_com_context = wgl._set_component_context
-        
-        for n in range(0, 9):
-            update_array[n] = 0
+
+        components = self.components
+        dirty_flag_array:memoryview = self._dirty_flag_array
+        rng = range(0, len(components))
+        for i in rng:
+            dirty_flag_array[i] = 0
 
 
         #ymap:ptr8 = ptr8(self.com_map_y)
@@ -1244,9 +1220,9 @@ class Screen():
             trow_x_2:int = trow<<1
             row_offset = (ymap[trow_x_2]<<8)+ymap[trow_x_2+1]
             while ymap[row_offset] != 0:
-                com_id:int = ymap[row_offset]
+                com = components[ymap[row_offset]-1]
                 row_offset += 1
-                com = self.components[com_id-1]
+
                 com_draw = com._draw
                 yshift:int = int(com.y)-ypos
                 set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line+CDL_OFFSET, com.width, TILE_SIZE, yshift)
