@@ -402,9 +402,11 @@ class HorizontalCropStream():
         assert(self._instream.get_remaining() >= self._instream_required)
         _skip_pixels(self._instream, self._skip_at_start)
 
-    @micropython.viper
+    #Temporarily Non-Native
+    #@micropython.viper
     def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
-        state:ptr32 = ptr32(self._extra_state)
+        #state:ptr32 = ptr32(self._extra_state)
+        state:memoryview = self._extra_state
 
         remaining:int = state[_SX_REMAINING]
         if n > remaining:
@@ -488,7 +490,6 @@ class WaspFontStream():
     def get_remaining(self) -> int:
         return self._extra_state[_SX_REMAINING]
 
-    @micropython.viper
     def _set_color(self, color:int, bgcolor:int):
         self._palette[0] = bgcolor
         self._palette[1] = color
@@ -507,11 +508,14 @@ class WaspFontStream():
         # Remaining in byte
         self._extra_state[_MIS_BITSEL] = 0x80
 
-    @micropython.viper
+    #Temporarily Non-Native
+    #@micropython.viper
     def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
-        state:ptr32 = ptr32(self._extra_state)
+        #state:ptr32 = ptr32(self._extra_state)
+        #buf2:ptr8 = ptr8(buf)
+        state:memoryview = self._extra_state
+        buf2:memoryview = buf
 
-        buf2:ptr8 = ptr8(buf)
         remaining:int = state[_SX_REMAINING]
         if n >= remaining:
             n = remaining
@@ -521,8 +525,11 @@ class WaspFontStream():
         offset = (offset<<1)
 
 
-        palette:ptr16 = ptr16(self._palette)
-        raw_data:ptr8 = ptr8(self._raw_data)
+        #palette:ptr16 = ptr16(self._palette)
+        #raw_data:ptr8 = ptr8(self._raw_data)
+
+        palette:memoryview = self._palette
+        raw_data:memoryview = self._raw_data
 
         WIDTH:int = state[_SX_WIDTH]
         cbyte:int = state[_MIS_CBYTE]
@@ -634,11 +641,14 @@ class WaspRle1ImageStream():
         #index
         self._extra_state[_MRIS_INDEX] = 0
 
-    @micropython.viper
+    #Temporarily Non-Native
+    #@micropython.viper
     def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
-        state:ptr32 = ptr32(self._extra_state)
+        #state:ptr32 = ptr32(self._extra_state)
+        #buf2:ptr8 = ptr8(buf)
+        state:memoryview = self._extra_state
+        buf2:memoryview = buf
 
-        buf2:ptr8 = ptr8(buf)
         remaining:int = state[_SX_REMAINING]
         if n >= remaining:
             n = remaining
@@ -648,8 +658,10 @@ class WaspRle1ImageStream():
         offset = (offset<<1)
 
 
-        palette:ptr16 = ptr16(self._palette)
-        raw_data:ptr8 = ptr8(self._raw_data)
+        #palette:ptr16 = ptr16(self._palette)
+        #raw_data:ptr8 = ptr8(self._raw_data)
+        palette:memoryview = self._palette
+        raw_data:memoryview = self._raw_data
 
         color:int = state[_MRIS_COLOR]
         rlen:int = state[_MRIS_RLEN]
@@ -802,8 +814,8 @@ class WaspRle2ImageStream():
     @micropython.viper
     def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
-
         buf2:ptr8 = ptr8(buf)
+
         remaining:int = state[_SX_REMAINING]
         if n >= remaining:
             n = remaining
@@ -873,10 +885,29 @@ class WaspRle2ImageStream():
 
 
 
+def create_wasp_image_stream(raw_data):
+    if len(raw_data) == 3:
+        return WaspRle1ImageStream(raw_data[0], raw_data[1], raw_data[2],)
+    else:
+        return WaspRle2ImageStream(raw_data[3:], raw_data[1], raw_data[2])
 
+
+
+
+
+COMFLAG_VSCROLLABLE = const(1)
+COMFLAG_HSCROLLABLE = const(0)
+
+COMFLAG_SCROLLABLE = const(COMFLAG_VSCROLLABLE | COMFLAG_HSCROLLABLE)
+"""Signals that this component can be scrollen, if not set components will be overdrawn before Scrolling starts, not drawn during scrolling, and drawn after scrolling has finished.
+"""
+
+COMFLAG_DEFAULT = const(COMFLAG_SCROLLABLE)
+"""Default Flags for a new component
+"""
 
 class Component():
-    def __init__(self, x:int, y:int, width:int, height:int, draw_function, state:dict[str, object]={}, font=None):
+    def __init__(self, x:int, y:int, width:int, height:int, draw_function, state:dict[str, object]={}, font=None, flags:int=COMFLAG_DEFAULT):
         """A Component
 
         :param x: _description_
@@ -893,18 +924,15 @@ class Component():
         :type state: dict[str, object], optional
         :param font: Font to be used when this component draws text, optional. If unspecified inherit font from screen
         :type font: FontModule, optional
-        :raises Exception: Invalid Sizing of component, or Component is unaligned
+        :param flags: Boolean FLags for component, bitwise-or together different COMFLAG_* constants to select applicable flags, defaults to COMFLAG_DEFAULT
+        :type flags: int, optional
         """
-        if (x < 0 or x%TILE_SIZE != 0 or
-          y < 0 or y%TILE_SIZE != 0 or
-          width <= 0 or width%TILE_SIZE != 0 or
-          height <= 0 or height%TILE_SIZE != 0):
-            raise Exception("Invalid Sizing or Positioning of Component, Components Size and Position must be aligned to "+str(TILE_SIZE)+", Position must not be negative and Size must be greater than 0")
-
         self.x:int = x
         self.y:int = y
         self.width:int = width
         self.height:int = height
+
+        self.scrollable:bool = bool(flags&COMFLAG_SCROLLABLE)
         self._dirty_r:bool = False
         self._dirty_me:memoryview = None                # type: ignore[assignment]
         self._font = font
@@ -917,19 +945,19 @@ class Component():
         # In other components
         if len(state) > 0:
             self._state = state
-        self.bound = False
+        self.bound:bool = False
 
 
     @property
     def dirty(self) -> bool:
-        dme = self._dirty_me
+        dme:memoryview = self._dirty_me
         if dme is None:
             return self._dirty_r
-        return bool(self._dirty_me[0])
+        return bool(dme[0])
 
     @dirty.setter
     def dirty(self, v:bool):
-        dme = self._dirty_me
+        dme:memoryview = self._dirty_me
         if dme is None:
             self._dirty_r = v
             return
@@ -948,6 +976,18 @@ class Component():
             self.dirty = True
         self._state[k] = v
 
+    def direct_draw(self, wgl):
+        font = self._font
+        if font is None:
+            font = fonts.sans24
+        t1, t2, t3, t4, t5, t6 = wgl._get_component_context()
+        try:
+            wgl._set_component_context(font, self.x, self.y, self.width, self.height, t6)
+            df = self._draw
+            df(self, self._state, wgl)
+        finally:
+            wgl._set_component_context(t1, t2, t3, t4, t5, t6)
+
 
 _SC_WIDTH = const(0)            # Width of Screen
 _SC_HEIGHT = const(1)           # Height of Screen
@@ -964,7 +1004,7 @@ _SC_MAX_AHEAD = const(5)
 _SC_YMAP_NULL_ENTRY = const(_MAX_TILES_HEIGHT*2)
 
 class Screen():
-    _YMAP_INITIALIZER = [0, _SC_YMAP_NULL_ENTRY]*(_MAX_TILES_HEIGHT)+[0]
+    _YMAP_INITIALIZER = ([0, _SC_YMAP_NULL_ENTRY]*_MAX_TILES_HEIGHT)+[0]
 
 
     _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(ARRAY_TYPE_U16, bytearray(_MAX_TILES_HEIGHT*2)))
@@ -1018,9 +1058,16 @@ class Screen():
 
 
         ncomponents:list['Component'] = []
+        unscrollable:list['Component'] = []
         cid:int = 0
         for c in components:
             cid += 1
+            if (c.x < 0 or c.x%TILE_SIZE != 0 or
+              c.y < 0 or c.y%TILE_SIZE != 0 or
+              c.width <= 0 or c.width%TILE_SIZE != 0 or
+              c.height <= 0 or c.height%TILE_SIZE != 0):
+                raise Exception("Invalid Sizing or Positioning of Component, Components Size and Position must be aligned to "+str(TILE_SIZE)+", Position must not be negative and Size must be greater than 0")
+
             # Get y range occupied by tile
             cy0:int = (c.y)//TILE_SIZE
             cy1:int = cy0+(c.height//TILE_SIZE)
@@ -1034,19 +1081,19 @@ class Screen():
 
             # Check and set flags in bitfield wether a given position is already occupied by another component
             for cyp in range(cy0, cy1):
-                com_map_y[cyp].append(cid)
+                if c.scrollable:
+                    com_map_y[cyp].append(cid)
                 value = bitfield[cyp]
                 for i in range(cx0, cx1):
                     if (value>>i)&1:
                         raise Exception("Overlapping components detected")
                     bitfield[cyp] |= 1<<i
-
             # Register this screen to the component so that it nows its id and has a reference to the screen
             if c.bound:
                 raise Exception("Component given to screen is already part of a screen")
+            c.bound = True
             # Give the component a one byte memoryview into the dirty_flag_array
             c._dirty_me = dirty_flag_array[(cid-1):cid]
-            c.bound = True
             c._dirty_r = False
 
             if c._font is None:
@@ -1054,7 +1101,8 @@ class Screen():
             c.dirty = False
             ncomponents.append(c)
 
-
+            if not c.scrollable:
+                unscrollable.append(c)
 
 
 
@@ -1064,6 +1112,7 @@ class Screen():
         next_offset:int = _SC_YMAP_NULL_ENTRY+1
         com_map_a:array = array(ARRAY_TYPE_U8, self._YMAP_INITIALIZER)
         ri:int = 0
+
         for r in com_map_y:
             r.append(0)
             offset:int = -1
@@ -1089,6 +1138,7 @@ class Screen():
 
 
         self.components:list['Component'] = ncomponents
+        self.unscrollable_components:list['Component'] = unscrollable
 
 
     def draw(self):
@@ -1138,7 +1188,6 @@ class Screen():
             com_draw(com, com._state, wgl)
 
     def _draw_scroll(self, scroll_direction:int):
-        builtin_false = builtins.bool(False)
         wgl = self._wgl
         fill = wgl._fill_uw
         sleep_ms = time.sleep_ms            # type: ignore[attr-defined]
@@ -1173,6 +1222,8 @@ class Screen():
 
         #ymap:ptr8 = ptr8(self.com_map_y)
         ymap:memoryview = self.com_map_y
+        #print("YMAP:  ", ymap[:(_MAX_TILES_HEIGHT*2)].hex(sep=' '), "   ", ymap[(_MAX_TILES_HEIGHT*2):].hex(sep=' '))
+
         ahead:int = 0                   # Number of lines drawing is ahead of scrolling
         TICKS_BETWEEN_SCROLL = 3
         scroll_next_pixel = ticks_add(ticks_ms(), TICKS_BETWEEN_SCROLL)
@@ -1227,7 +1278,6 @@ class Screen():
                 yshift:int = int(com.y)-ypos
                 set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line+CDL_OFFSET, com.width, TILE_SIZE, yshift)
                 com_draw(com, com._state, wgl)
-                com.dirty = builtin_false
                 while ahead > 0 and int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
                     scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
                     current_draw_line += SCROLL_D
@@ -1256,9 +1306,25 @@ class Screen():
             else:
                 sleep_ms(1)
 
-    @micropython.viper
+        # Draw in Unscrollable Components now that scrolling is done
+        for com in self.unscrollable_components:
+            com_draw = com._draw
+            set_com_context(com._font, X_OFFSET+int(com.x), com.y, com.width, com.height, 0)
+            com_draw(com, com._state, wgl)
+            com.dirty = False
+
+    def _clear_unscrollable(self):
+        wgl = self._wgl
+        fill = wgl._fill_uw
+        #sc_info:ptr32 = ptr32(self._screen_info)
+        sc_info:memoryview = self._screen_info
+        X_OFFSET:int = sc_info[_SC_XOFFSET]
+        bgcolor:int = self.bgcolor
+        for com in self.unscrollable_components:
+            fill(bgcolor, X_OFFSET+int(com.x), com.y, com.width, com.height)
+
     def _clear_screen(self, bgcolor:int):
-        cbgcolor:int = int(self.bgcolor)
+        cbgcolor:int = self.bgcolor
         wgl = self._wgl
         fill = wgl._fill_uw
         # Special Case, new background color differs, so redraw entire screen
@@ -1284,6 +1350,7 @@ def TextComponent(x:int, y:int, width:int, height:int, s:str, color:int, bgcolor
     def _draw_function(com, state, wgl):
         wgl.draw_string(color, bgcolor, s, 0, 0)
     return Component(x, y, width, height, _draw_function)
+
 
 
 
@@ -1374,6 +1441,8 @@ class WatchGraphics():
     def _set_component_context(self, font, x:int, y:int, width:int, height:int, shift_y:int):
         self._font._set_font(font)
         self._set_window(x, y, width, height, shift_y)
+    def _get_component_context(self):
+        return (self._font._font, self._window_info[_WGWI_XPOS], self._window_info[_WGWI_YPOS]-ARROFF, self.width, self.height, self._window_info[_WGWI_YSHIFT]-ARROFF)
 
 
 
@@ -1703,7 +1772,7 @@ class WatchGraphics():
 
 
     # Get bounding box of a string drawn on the screen
-    @micropython.native
+    #@micropython.native
     def string_bounding_box(self, s:str) -> tuple[int, int]:
         """Calculate the bounding box of a string
 

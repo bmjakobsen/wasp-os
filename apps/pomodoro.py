@@ -252,7 +252,7 @@ class PomodoroApp():
                 for x in range(5):
                     btn = widgets.Button(x=x*48,
                                          y=y*65+60,
-                                         w=49,
+                                         w=48,
                                          h=59,
                                          label=fields[x + 5*y])
                     btn.draw()

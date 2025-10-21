@@ -30,6 +30,10 @@ from drivers.cst816s import CST816S
 from drivers.st7789 import ST7789_SPI
 from drivers.vibrator import Vibrator
 
+# Variable to determine wether to run the scrolling test instead for watchgl
+_WGL_SCROLL_TEST = False
+
+
 class Accelerometer:
     """Simulated accelerometer.
 
@@ -207,7 +211,6 @@ wgl = watchgl.WatchGraphics(display)
 drawable = draw565.Draw565(wgl)
 
 
-_WGL_SCROLL_TEST = False
 if _WGL_SCROLL_TEST:
     _test_screen = wgl._create_test_screen(v=0)
     _test_screen._draw_full()

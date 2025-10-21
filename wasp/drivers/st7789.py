@@ -243,7 +243,6 @@ class ST7789(object):
 
             quick_start()
 
-
             # Do the fill
             n:int = 0
             while n < full_rows:
@@ -376,7 +375,8 @@ class ST7789_SPI(ST7789):
             self.write_cmd(_SWRESET)
         sleep_ms(125)
 
-    @micropython.viper
+    #Temporarily Non-Native
+    #@micropython.viper
     def write_cmd(self, cmd:int):
         """Send a command opcode to the display.
 
@@ -385,7 +385,8 @@ class ST7789_SPI(ST7789):
         """
         dc = self.dc
         cs = self.cs
-        c:ptr8 = ptr8(self.cmd)
+        #c:ptr8 = ptr8(self.cmd)
+        c:memoryview = self.cmd
 
         dc(0)
         cs(0)
@@ -394,7 +395,6 @@ class ST7789_SPI(ST7789):
         cs(1)
         dc(1)
 
-    @micropython.viper
     def write_data(self, buf):
         """Send data to the display.
 
