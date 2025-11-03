@@ -101,7 +101,6 @@ class ST7789Sim(object):
                 self.mute = True
             elif cmd == DISPON:
                 self.mute = False
-                window_refresh(self.vsc_line)
             else:
                 self.cmd = data[0]
 
@@ -110,7 +109,6 @@ class ST7789Sim(object):
             assert( (data[2]<<8)+(data[3]&0xFF) == XHEIGHT )
             self.vsc_line = 0
             self.BUFFER_HEIGHT = XHEIGHT
-            window_refresh(self.vsc_line)
 
         elif self.cmd == VSCSAD:
             # Ensure that a VSCRDEF has been ran before
@@ -119,7 +117,6 @@ class ST7789Sim(object):
             # Assert than the new vsc_line is valid
             assert(vsc_line >= 0 and vsc_line < XHEIGHT)
             self.vsc_line = vsc_line
-            window_refresh(self.vsc_line)
 
         elif self.cmd == CASET:
             self.colclip[0] = (data[0] << 8) + data[1]
@@ -169,8 +166,8 @@ class ST7789Sim(object):
             
             # Forcibly release the surface to ensure it is unlocked
             del pixelview
-            if not self.mute:
-                window_refresh(self.vsc_line)
+        if not self.mute:
+            window_refresh(self.vsc_line)
 
 class CST816SSim():
     def __init__(self):
