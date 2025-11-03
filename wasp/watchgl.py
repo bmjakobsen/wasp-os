@@ -989,6 +989,53 @@ class Component():
             wgl._set_component_context(t1, t2, t3, t4, t5, t6)
 
 
+
+
+class WglAppInfo():
+    def __init__(self, wgl:'WatchGraphics', in_scroll:tuple[bool, int]=(False, -1), out_scroll:tuple[bool, int]=(False, -1)):
+        self._wgl:'WatchGraphics' = wgl
+        self._in_scroll:tuple[bool, int] = in_scroll
+        self._out_scroll:tuple[bool, int] = out_scroll
+        self._screens:list['Screen'] = []
+        self._current_screen:int = -1
+    def create_screen(self, bgcolor:int, components:list['Component'], font=fonts.sans24) -> 'Screen':
+        """Create a screen.
+
+        :param bgcolor: Background Color for the screen
+        :type bgcolor: int
+        :param components: List of Components
+        :type components: list[Component]
+        :param font: Default font for the screen, can be overriden in individual Components, defaults to fonts.sans24
+        :type font: FontModule, optional
+        :return: New Screen
+        :rtype: Screen
+        """
+        s = Screen(bgcolor, self._wgl, components, font=font)
+        return s
+    @property
+    def current_screen(self) -> 'Screen':
+        if self._current_screen < 0:
+            return None         # type: ignore[return-value]
+        return self._screens[self._current_screen]
+    @current_screen.setter
+    def current_screen(self, screen:'Screen'):
+        if self._current_screen < 0:
+            raise Exception("Cant set current screen, if AppInfo is not initialized yet")
+        self._current_screen = self._screens.index(screen)
+    def init(self, screens:list['Screen'], current_screen:int=0):
+        if len(screens) <= 0:
+            raise Exception("At least one screen must be given")
+        if current_screen < 0 or current_screen >= len(screens):
+            raise Exception("Invalid Current_screen specified")
+        self._screens = screens
+        self._current_screen = current_screen
+    def free(self):
+        self._screens = []
+        self._current_screen = -1
+
+
+
+
 _SC_WIDTH = const(0)            # Width of Screen
 _SC_HEIGHT = const(1)           # Height of Screen
 _SC_THEIGHT = const(2)          # Height of screen in Components
@@ -1171,6 +1218,7 @@ class Screen():
     def _draw_full(self):
         self._full_draw = False
         wgl = self._wgl
+        wgl._fill_uw(0, 0, 0, 240, 240)
         set_com_context = wgl._set_component_context
 
 
@@ -1188,6 +1236,7 @@ class Screen():
             com_draw(com, com._state, wgl)
 
     def _draw_scroll(self, scroll_direction:int):
+        self._full_draw = False
         wgl = self._wgl
         fill = wgl._fill_uw
         sleep_ms = time.sleep_ms            # type: ignore[attr-defined]
@@ -1306,8 +1355,10 @@ class Screen():
             else:
                 sleep_ms(1)
 
+        #return
         # Draw in Unscrollable Components now that scrolling is done
         for com in self.unscrollable_components:
+            com.dirty = True
             com_draw = com._draw
             set_com_context(com._font, X_OFFSET+int(com.x), com.y, com.width, com.height, 0)
             com_draw(com, com._state, wgl)
@@ -1336,7 +1387,7 @@ class Screen():
             fill(bgcolor, com.x, com.x, com.width, com.height)
 
     def switch_screen(self, ns:'Screen', direction:int):
-        self._wgl._set_screen(self, ns)
+        self._wgl._set_screen(self, ns, direction=direction)
 
 
 
@@ -1422,6 +1473,12 @@ class WatchGraphics():
     def _set_font(self, font):
         self._font._set_font(font)
 
+    def _update_current_screen(self):
+        cscreen = self._screen
+        if self._screen is None:
+            return
+        self._screen.draw()
+
     def _set_window(self, x:int, y:int, width:int, height:int, shift_y:int):
         self.width = width
         self.height = height
@@ -1446,39 +1503,42 @@ class WatchGraphics():
 
 
 
-    def _set_screen(self, old:Screen, s:Screen):
+    def _set_screen(self, old:Screen, s:Screen, direction:int=-1):
         cs = self._screen
         if old is not None and cs is not old:
             raise Exception("Cant switch screen if current screen is not active")
-        if cs == s:
-            return
         if s is None:
-            self.screen = None
+            self._screen = None
             self._set_screen_context(0)
+            return
         else:
+            if cs is not None:
+                cs._clear_screen(s.bgcolor)
             self._screen = s
             self._set_screen_context(s.bgcolor)
+        if direction != DIRECTION_UP and direction != DIRECTION_DOWN:
+            s._draw_full()
+        else:
+            s._draw_scroll(direction)
 
 
 
 
 
-    def create_screen(self, bgcolor:int, components:list['Component'], font=fonts.sans24) -> 'Screen':
-        """Create a screen.
+    def create_appinfo(self, in_scroll:tuple[bool, int]=(False, -1), out_scroll:tuple[bool, int]=(False, -1)) -> 'WglAppInfo':
+        """Create a WglAppInfo object.
 
-        :param bgcolor: Background Color for the screen
-        :type bgcolor: int
-        :param components: List of Components
-        :type components: list[Component]
-        :param font: Default font for the screen, can be overriden in individual Components, defaults to fonts.sans24
-        :type font: FontModule, optional
-        :return: New Screen
-        :rtype: Screen
+        :param in_scroll: A Tuple containing the scrolling direction when scrolling into the app, and a boolean that says wether to force this
+        :type in_scroll: tuple[bool, int]
+        :param out_scroll: A Tuple containing the scrolling direction when scrolling out of the app, and a boolean that says wether to force this
+        :type out_scroll: tuple[bool, int]
+        :return: New WglAppInfo Object
+        :rtype: WglAppInfo
         """
-        return Screen(bgcolor, self, components, font=font)
+        return WglAppInfo(self, in_scroll=in_scroll, out_scroll=out_scroll)
 
     # Bit image to the screen at position, will automatically be cropped if it goes out of bounds
-    @micropython.viper
+    #@micropython.viper
     def blit(self, image, x:int, y:int):
         """Blit an Image to the Screen, will be cropped to fit inside of component
 
@@ -1489,6 +1549,7 @@ class WatchGraphics():
         :param y: y coordinate
         :type y: int
         """
+        image.reset()
         window_info:ptr32 = ptr32(self._window_info)
 
         y += window_info[_WGWI_YSHIFT]-ARROFF
@@ -1533,7 +1594,7 @@ class WatchGraphics():
             image = croppedx
 
         self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]-ARROFF+y)
-        image.reset()
+        #image.reset()
 
 
     # Fill on screen but ignore current window
@@ -1541,7 +1602,7 @@ class WatchGraphics():
         self.display.wgl_fill(color, x, y, width, height)
 
     # Fill an area on the screen, will automatically be cropped to not leave the specified component
-    @micropython.viper
+    #@micropython.viper
     def fill(self, color:int, x:int, y:int, width:int, height:int):
         """Fill a rectangular Area on the screen with a given color
 
@@ -1840,7 +1901,7 @@ class WatchGraphics():
             self.blit(font, x, y)
             x += cw
 
-    def draw_string_a(self, color:int, bgcolor:int, s:str, x:int, y:int, width:int, align:int):
+    def draw_string_a(self, color:int, bgcolor:int, s:str, x:int, y:int, width:int=0, align:int=ALIGNMENT_CENTER):
         """Draw a String aligned inside of a box. And fill the rest of the box
 
         :param color: Foreground Color

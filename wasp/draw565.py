@@ -169,7 +169,7 @@ class Draw565(object):
             self._wgl.draw_string(fg, bg, s, x, y)
             return
         align = ALIGNMENT_RIGHT if right else ALIGNMENT_CENTER
-        self._wgl.draw_string_a(fg, bg, s, x, y, width, align)
+        self._wgl.draw_string_a(fg, bg, s, x, y, width=width, align=align)
 
 
     def bounding_box(self, s):

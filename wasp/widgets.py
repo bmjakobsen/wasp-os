@@ -130,17 +130,14 @@ class Clock(watchgl.Component):
         distext = ""
         if self.enabled:
             distext = '{:02}:{:02}'.format(now[3], now[4])
-        update:bool = False
-        if old_distext is None or distext != old_distext:
-            update = True
-            self.set_var('distext', distext)
+        self.set_var('distext', distext)
 
         if not self._no_draw:
             if not self.bound and self.dirty:
                 self.direct_draw(_wgl_reference)
                 self.dirty = False
-        self.on_screen = now
-        if update:
+        if self.on_screen != now:
+            self.on_screen = now
             return now
         return None
 
@@ -239,16 +236,15 @@ class StatusBar(watchgl.Component):
                   None otherwise.
         """
         now = self._clock.update()
-        clock_update = self._clock.dirty
-        if clock_update or force_draw:
-            clock_update = True
+        clock_update = self._clock.dirty or force_draw
+        if clock_update:
             self._meter.update()
             self._notif.update()
         bat_update = self._meter.dirty or force_draw
         notif_update = self._notif.dirty or force_draw
 
         if not clock_update and not bat_update and not notif_update:
-            return None
+            return now
 
         self._smart_redraw = True
         if force_draw:
@@ -358,7 +354,7 @@ class Button(watchgl.Component):
         txt = wasp.system.theme('bright')
 
         wgl.fill(bg, 0, 0, w, h)
-        wgl.draw_string_a(txt, bg, label, 2, h//2-12, w-4, watchgl.ALIGNMENT_CENTER)
+        wgl.draw_string_a(txt, bg, label, 2, h//2-12, width=w-4, align=watchgl.ALIGNMENT_CENTER)
         wgl.fill(frame, 0, 0, w, 2)
         wgl.fill(frame, 0, h-2, w, 2)
         wgl.fill(frame, 0, 2, 2, h-4)
@@ -462,7 +458,7 @@ class Checkbox(watchgl.Component):
         label = self._label
         box_x = self._box_x
         if label is not None:
-            wgl.draw_string_a(wasp.system.theme('bright'), 0, label, 0, 4, 0, watchgl.ALIGNMENT_LEFT)
+            wgl.draw_string_a(wasp.system.theme('bright'), 0, label, 0, 4, width=0, align=watchgl.ALIGNMENT_LEFT)
         if state['toggle']:
             wgl.blit(self._icon_on, box_x, 0)
         else:
@@ -614,7 +610,7 @@ class Spinner(watchgl.Component):
         s = str(state['value'])
         if len(s) < im[4]:
             s = '0' * (im[4] - len(s)) + s
-        wgl.draw_string_a(wasp.system.theme('bright'), 2, s, 0, 24+40-14, 60, watchgl.ALIGNMENT_CENTER)
+        wgl.draw_string_a(wasp.system.theme('bright'), 2, s, 0, 24+40-14, width=60, align=watchgl.ALIGNMENT_CENTER)
 
 
     def draw(self):

@@ -105,6 +105,7 @@ class Manager():
 
     def __init__(self):
         self.app = None
+        self._switch_scroll = (False, -1)
 
         self.bar = widgets.StatusBar()
 
@@ -267,9 +268,7 @@ class Manager():
                     self.app = True
                     raise
 
-        screen = None
-        if hasattr(self.app, 'primary_screen') and self.app.primary_screen is not None:
-            screen:Screen = primary_screen
+
 
         # Clear out any configuration from the old application
         self.event_mask = 0
@@ -278,10 +277,30 @@ class Manager():
 
         cscreen = self._current_screen
 
+        if hasattr(app, 'appinfo') and app.appinfo is not None:
+            watch.drawable._wgl = None
+            out_scroll_dir = self._switch_scroll
+            scroll_dir = app.appinfo._in_scroll
+            if scroll_dir[0]:
+                scroll_direction = scroll_dir[1]
+            elif scroll_dir[1] >= 0 and not out_scroll_dir[0]:
+                scroll_direction = scroll_dir[1]
+            else:
+                scroll_direction = out_scroll_dir[1]
 
-
-        self.app = app
-        if screen is None:
+            app.foreground()
+            if app.appinfo.current_screen is None:
+                raise Exception("App has not been properly initialized")
+            self._current_screen = app.appinfo.current_screen
+            self.app = app
+            self._switch_scroll = app.appinfo._out_scroll
+            if cscreen is not None and scroll_direction < 0:
+                cscreen._clear_screen(screen.bgcolor)
+            watch.wgl._set_screen(None, app.appinfo.current_screen, direction=scroll_direction)
+            watch.display.mute(False)
+        else:
+            self.app = app
+            self._switch_scroll = (False, -1)
             watch.wgl._set_screen(None, None)
             watch.drawable._wgl = watch.drawable._wgl_bak
             watch.display.mute(True)
@@ -291,12 +310,6 @@ class Manager():
             watch.drawable.reset()
             app.foreground()
             watch.display.mute(False)
-        else:
-            watch.drawable._wgl = None
-            if cscreen is not None and cscreen is not screen:
-                cscreen._clear_screen(screen.bgcolor)
-            watch.wgl._set_screen(None, screen)
-            self._current_screen = screen
 
     def navigate(self, direction=None):
         """Navigate to a new application.
@@ -430,6 +443,7 @@ class Manager():
             watch.display.poweron()
             if 'wake' in dir(self.app):
                 self.app.wake()
+                watch.wgl._update_current_screen()
             watch.backlight.set(self._brightness)
             watch.touch.wake()
 
@@ -442,7 +456,9 @@ class Manager():
 
         if bool(self.event_mask & EventMask.BUTTON):
             # Currently we only support one button
-            if not self.app.press(EventType.HOME, state):
+            a = self.app.press(EventType.HOME, state)
+            watch.wgl._update_current_screen()
+            if not a:
                 # If app reported None or False then we are done
                 return
 
@@ -457,7 +473,10 @@ class Manager():
 
         # Handle context sensitive events such as NEXT
         if event[0] == EventType.NEXT:
-            if bool(event_mask & EventMask.NEXT) and not self.app.swipe(event):
+            if bool(event_mask & EventMask.NEXT):
+                swipe = self.app.swipe(event)
+                watch.wgl._update_current_screen()
+            if bool(event_mask & EventMask.NEXT) and not swipe:
                 # The app has already handled this one (mark as no event)
                 event[0] = 0
             elif self.app == self.quick_ring[0] and len(self.notifications):
@@ -471,12 +490,15 @@ class Manager():
             updown = event[0] == 1 or event[0] == 2
             if (bool(event_mask & EventMask.SWIPE_UPDOWN) and updown) or \
                (bool(event_mask & EventMask.SWIPE_LEFTRIGHT) and not updown):
-                if self.app.swipe(event):
+                swipe = self.app.swipe(event)
+                watch.wgl._update_current_screen()
+                if swipe:
                     self.navigate(event[0])
             else:
                 self.navigate(event[0])
         elif event[0] == 5 and self.event_mask & EventMask.TOUCH:
             self.app.touch(event)
+            watch.wgl._update_current_screen()
 
         watch.touch.reset_touch_data()
 
@@ -510,6 +532,7 @@ class Manager():
                         self.tick_expiry += self.tick_period_ms
                         ticks += 1
                     self.app.tick(ticks)
+                    watch.wgl._update_current_screen()
 
             state = self._button.get_event()
             if None != state:

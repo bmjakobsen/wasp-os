@@ -13,18 +13,42 @@ Shows a time (as HH:MM) together with a battery meter and the date.
 import wasp
 
 import fonts.clock as digits
+from watchgl import create_wasp_image_stream, WglAppInfo, Component, DIRECTION_UP, DIRECTION_DOWN, ALIGNMENT_CENTER
 
+DIGITS_COLON = create_wasp_image_stream(digits.clock_colon)
 DIGITS = (
-        digits.clock_0, digits.clock_1, digits.clock_2, digits.clock_3,
-        digits.clock_4, digits.clock_5, digits.clock_6, digits.clock_7,
-        digits.clock_8, digits.clock_9
+        create_wasp_image_stream(digits.clock_0), create_wasp_image_stream(digits.clock_1), create_wasp_image_stream(digits.clock_2), create_wasp_image_stream(digits.clock_3),
+        create_wasp_image_stream(digits.clock_4), create_wasp_image_stream(digits.clock_5), create_wasp_image_stream(digits.clock_6), create_wasp_image_stream(digits.clock_7),
+        create_wasp_image_stream(digits.clock_8), create_wasp_image_stream(digits.clock_9)
 )
 
 MONTH = 'JanFebMarAprMayJunJulAugSepOctNovDec'
 
+
+def _draw_component_colon(com, state, wgl):
+    DIGITS_COLON._set_color(3, wasp.watch.drawable.lighten(wasp.system.theme('mid'), 1))
+    wgl.blit(DIGITS_COLON, 0, 0)
+
+def _draw_component_digit(com, state, wgl):
+    color_hi = state['color']
+    if color_hi:
+        color =  wasp.system.theme('bright')
+    else:
+        color =  wasp.system.theme('mid')
+    digit = state['digit']
+    DIGITS[digit]._set_color(3, color)
+    wgl.blit(DIGITS[digit], 0, 0)
+
+def _draw_component_date(com, state, wgl):
+    wgl.draw_string_a(wasp.system.theme('bright'), 0, state['date'], 0, 4, width=240, align=ALIGNMENT_CENTER)
+
+
 class ClockApp():
     """Simple digital clock application."""
     NAME = 'Clock'
+
+    def __init__(self):
+        self.appinfo = wasp.watch.wgl.create_appinfo(in_scroll=(True, DIRECTION_UP), out_scroll=(True, DIRECTION_DOWN))
 
     def foreground(self):
         """Activate the application.
@@ -32,9 +56,34 @@ class ClockApp():
         Configure the status bar, redraw the display and request a periodic
         tick callback every second.
         """
-        wasp.system.bar.clock = False
-        self._draw(True)
+        now = wasp.watch.rtc.get_localtime()
+
+        c_sb = wasp.widgets.StatusBar()
+        c_sb.clock = False
+        c_hdig1 = Component(  0, 80, 48, 64, _draw_component_digit, state={'color': False, 'digit': now[3] // 10})
+        c_hdig2 = Component( 48, 80, 48, 64, _draw_component_digit, state={'color': True, 'digit': now[3] % 10})
+        c_mdig1 = Component(144, 80, 48, 64, _draw_component_digit, state={'color': False, 'digit': now[4] // 10})
+        c_mdig2 = Component(192, 80, 48, 64, _draw_component_digit, state={'color': True, 'digit': now[4] % 10})
+        c_text_date = Component(0, 176, 240, 48, _draw_component_date, state={'date': self._day_string(now)})
+        c_sep   = Component( 96, 80, 48, 64, _draw_component_colon)
+        self.components = [c_sb, c_hdig1, c_hdig2, c_mdig1, c_mdig2, c_sep, c_text_date]
+
+        s = self.appinfo.create_screen(0, self.components)
+        self.appinfo.init([s])
         wasp.system.request_tick(1000)
+    def background(self):
+        self.appinfo.free()
+
+    def _update(self):
+        now = self.components[0].update()
+        if now is None:
+            return
+        
+        self.components[1].set_var('digit', now[3] // 10)
+        self.components[2].set_var('digit', now[3] % 10)
+        self.components[3].set_var('digit', now[4] // 10)
+        self.components[4].set_var('digit', now[4] % 10)
+        self.components[5].set_var('date', self._day_string(now))
 
     def sleep(self):
         """Prepare to enter the low power mode.
@@ -51,16 +100,16 @@ class ClockApp():
         udpate the display (but there is no need for a full redraw because
         the display RAM is preserved during a sleep.
         """
-        self._draw()
+        self._update()
 
     def tick(self, ticks):
         """Periodic callback to update the display."""
-        self._draw()
+        self._update()
 
     def preview(self):
         """Provide a preview for the watch face selection."""
         wasp.system.bar.clock = False
-        self._draw(True)
+        self._update()
 
     def _day_string(self, now):
         """Produce a string representing the current day"""
@@ -70,44 +119,3 @@ class ClockApp():
 
         return '{} {} {}'.format(now[2], month, now[0])
 
-    def _draw(self, redraw=False):
-        """Draw or lazily update the display.
-
-        The updates are as lazy by default and avoid spending time redrawing
-        if the time on display has not changed. However if redraw is set to
-        True then a full redraw is be performed.
-        """
-        draw = wasp.watch.drawable
-        hi =  wasp.system.theme('bright')
-        lo =  wasp.system.theme('mid')
-        mid = draw.lighten(lo, 1)
-
-        if redraw:
-            now = wasp.watch.rtc.get_localtime()
-
-            # Clear the display and draw that static parts of the watch face
-            draw.fill()
-            draw.blit(digits.clock_colon, 2*48, 80, fg=mid)
-
-            # Redraw the status bar
-            wasp.system.bar.draw()
-        else:
-            # The update is doubly lazy... we update the status bar and if
-            # the status bus update reports a change in the time of day 
-            # then we compare the minute on display to make sure we 
-            # only update the main clock once per minute.
-            now = wasp.system.bar.update()
-            if not now or self._min == now[4]:
-                # Skip the update
-                return
-
-        # Draw the changeable parts of the watch face
-        draw.blit(DIGITS[now[4]  % 10], 4*48, 80, fg=hi)
-        draw.blit(DIGITS[now[4] // 10], 3*48, 80, fg=lo)
-        draw.blit(DIGITS[now[3]  % 10], 1*48, 80, fg=hi)
-        draw.blit(DIGITS[now[3] // 10], 0*48, 80, fg=lo)
-        draw.set_color(hi)
-        draw.string(self._day_string(now), 0, 180, width=240)
-
-        # Record the minute that is currently being displayed
-        self._min = now[4]
