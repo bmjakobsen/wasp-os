@@ -143,7 +143,7 @@ class Draw565(object):
 
         :param font:  A font module generated using ``font_to_py.py``.
         """
-        self._wgl._set_font(font)
+        self._wgl.set_font(font)
         self._font = font
 
     def string(self, s, x, y, width=None, right=False):

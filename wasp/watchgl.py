@@ -37,18 +37,6 @@ except (ImportError, AttributeError):
         gc.collect()
 
 
-TILE_SIZE = const(16)                       # Size of tiles on the screen, all components must be aligned to tiles
-"""Constant that determines the alignment of components on the screen
-"""
-
-_MAX_TILES_WIDTH = const(16)
-_MAX_TILES_HEIGHT = const(20)
-
-# The Max size of the screen is dependent on the tile size, currently it is assumed that all screens have at most 16 Tiles in the width
-_MAX_SCREEN_WIDTH = const(TILE_SIZE*_MAX_TILES_WIDTH)
-_MAX_SCREEN_HEIGHT = const(TILE_SIZE*_MAX_TILES_HEIGHT)
-
-
 
 try:
     from typing import Protocol
@@ -201,28 +189,10 @@ class DisplaySpec():
             self.min_dimension = width
 
 
-        if width > _MAX_SCREEN_WIDTH:
-            raise Exception("The screen is too wide to handle, currently not more than "+str(_MAX_SCREEN_WIDTH)+" is allowed")
-        if height > _MAX_SCREEN_WIDTH:
-            raise Exception("The screen is too wide to handle, currently not more than "+str(_MAX_SCREEN_HEIGHT)+" is allowed")
-
-
-        self.tiled_width:int = width//TILE_SIZE
-        self.tiled_height:int = height//TILE_SIZE
-
-        self.x_offset:int = (width-(self.tiled_width*TILE_SIZE))//2
-        self.y_chin:int = height-(self.tiled_height*TILE_SIZE)
-
-        if self.x_offset < 0 or self.y_chin < 0:
-            raise Exception("Shouldnt Happen")
-
         if vscroll_stripe_size >= _VSCROLL_STRIPE_SIZE_REDUCTION:
             vscroll_stripe_size -= _VSCROLL_STRIPE_SIZE_REDUCTION
         if vscroll_stripe_size < 0:
             raise Exception("vscroll_stripe_size must not be negative")
-        if vscroll_stripe_size < (2*TILE_SIZE+self.y_chin):
-            if DIRECTION_UP in scroll_directions or DIRECTION_DOWN in scroll_directions:
-                raise Exception("Vertical Scrolling area is too small to implement scrolling, must specify allowed scrolling directions to not include UP or DOWN")
 
         scroll_directions = frozenset(scroll_directions)
         for scd in scroll_directions:
@@ -894,103 +864,6 @@ def create_wasp_image_stream(raw_data):
 
 
 
-
-COMFLAG_VSCROLLABLE = const(1)
-COMFLAG_HSCROLLABLE = const(0)
-
-COMFLAG_SCROLLABLE = const(COMFLAG_VSCROLLABLE | COMFLAG_HSCROLLABLE)
-"""Signals that this component can be scrollen, if not set components will be overdrawn before Scrolling starts, not drawn during scrolling, and drawn after scrolling has finished.
-"""
-
-COMFLAG_DEFAULT = const(COMFLAG_SCROLLABLE)
-"""Default Flags for a new component
-"""
-
-class Component():
-    def __init__(self, x:int, y:int, width:int, height:int, draw_function, state:dict[str, object]={}, font=None, flags:int=COMFLAG_DEFAULT):
-        """A Component
-
-        :param x: _description_
-        :type x: int
-        :param y: _description_
-        :type y: int
-        :param width: _description_
-        :type width: int
-        :param height: _description_
-        :type height: int
-        :param draw_function: Function that is called to draw the component
-        :type draw_function: Callable[[Component, dict[str, object], WatchGraphics], None]
-        :param state: State Initializer, defaults to {}
-        :type state: dict[str, object], optional
-        :param font: Font to be used when this component draws text, optional. If unspecified inherit font from screen
-        :type font: FontModule, optional
-        :param flags: Boolean FLags for component, bitwise-or together different COMFLAG_* constants to select applicable flags, defaults to COMFLAG_DEFAULT
-        :type flags: int, optional
-        """
-        self.x:int = x
-        self.y:int = y
-        self.width:int = width
-        self.height:int = height
-
-        self.scrollable:bool = bool(flags&COMFLAG_SCROLLABLE)
-        self._dirty_r:bool = False
-        self._dirty_me:memoryview = None                # type: ignore[assignment]
-        self._font = font
-
-
-        self._draw = draw_function
-        self._state:dict[str, object] = {}
-        # Only assign value of state to _state if it is not the default value, else assign to empty dict
-        # This is because, if the default value where assigned, the updates to the dict would also happen
-        # In other components
-        if len(state) > 0:
-            self._state = state
-        self.bound:bool = False
-
-
-    @property
-    def dirty(self) -> bool:
-        dme:memoryview = self._dirty_me
-        if dme is None:
-            return self._dirty_r
-        return bool(dme[0])
-
-    @dirty.setter
-    def dirty(self, v:bool):
-        dme:memoryview = self._dirty_me
-        if dme is None:
-            self._dirty_r = v
-            return
-        dme[0] = int(v)
-
-    # Returns None, if undefined
-    def get_var(self, k:str) -> object:
-        state = self._state
-        if k not in state:
-            return None
-        return self._state[k]
-    def set_var(self, k:str, v:object):
-        state = self._state
-        # Only set dirty flag if not already dirty, and this changes anything
-        if not self.dirty and (k not in state or state[k] != v):
-            self.dirty = True
-        self._state[k] = v
-
-    def direct_draw(self, wgl):
-        font = self._font
-        if font is None:
-            font = fonts.sans24
-        t1, t2, t3, t4, t5, t6 = wgl._get_component_context()
-        try:
-            wgl._set_component_context(font, self.x, self.y, self.width, self.height, t6)
-            df = self._draw
-            df(self, self._state, wgl)
-        finally:
-            wgl._set_component_context(t1, t2, t3, t4, t5, t6)
-
-
-
-
 class WglAppInfo():
     def __init__(self, wgl:'WatchGraphics', in_scroll:tuple[bool, int]=(False, -1), out_scroll:tuple[bool, int]=(False, -1)):
         self._wgl:'WatchGraphics' = wgl
@@ -998,19 +871,21 @@ class WglAppInfo():
         self._out_scroll:tuple[bool, int] = out_scroll
         self.screens:list['Screen'] = []
         self._current_screen:int = -1
-    def create_screen(self, bgcolor:int, components:list['Component'], font=fonts.sans24) -> 'Screen':
+    def create_screen(self, bgcolor:int, draw_function, vars:dict, font=fonts.sans24) -> 'Screen':
         """Create a screen.
 
         :param bgcolor: Background Color for the screen
         :type bgcolor: int
-        :param components: List of Components
-        :type components: list[Component]
-        :param font: Default font for the screen, can be overriden in individual Components, defaults to fonts.sans24
+        :param draw_function: Function that is called to draw the component
+        :type draw_function: Callable[[Screen, WatchGraphics, Tuple[int, int, int]], None]
+        :param vars: Definition of used Variables, as a dictionary
+        :type vars: Dict[str, int]
+        :param font: Default font for the screen, can be changed during the draw method, defaults to fonts.sans24
         :type font: FontModule, optional
         :return: New Screen
         :rtype: Screen
         """
-        s = Screen(bgcolor, self._wgl, components, font=font)
+        s = Screen(bgcolor, self._wgl, draw_function, vars, font=font)
         return s
     @property
     def current_screen(self) -> 'Screen':
@@ -1046,25 +921,17 @@ _SC_WIDTH = const(0)            # Width of Screen
 _SC_HEIGHT = const(1)           # Height of Screen
 _SC_THEIGHT = const(2)          # Height of screen in Components
 # Horizontal and Vertical Offset to usable screen inside of real screen
-_SC_XOFFSET = const(3)
-_SC_YCHIN = const(4)
-_SC_MAX_AHEAD = const(5)
+_SC_MAX_AHEAD = const(3)
 
-# This means that the component Grid is centered horizontally, but not vertically.
 
+UPDATE_GROUPS_ALL = const(0xFFFFFFF)
+
+VSCROLL_STRIPE_SIZE = const(32)
 SCROLL_SPEED = const(2)
 
-_SC_YMAP_NULL_ENTRY = const(_MAX_TILES_HEIGHT*2)
-
 class Screen():
-    _YMAP_INITIALIZER = ([0, _SC_YMAP_NULL_ENTRY]*_MAX_TILES_HEIGHT)+[0]
-
-
-    _CREATION_OVERLAP_BITMASK:memoryview = memoryview(array(ARRAY_TYPE_U16, bytearray(_MAX_TILES_HEIGHT*2)))
-    def __init__(self, bgcolor:int, wgl:'WatchGraphics', components:list['Component'], font=fonts.sans24):   
-        if len(components) > 127:
-            raise Exception("Too many components")
-        self.bgcolor:int = bgcolor&0xFF
+    def __init__(self, bgcolor:int, wgl:'WatchGraphics', draw_function, vars:dict, font=fonts.sans24):
+        self.bgcolor:int = bgcolor&0xFFFF
 
         if font is None:
             font = fonts.sans24
@@ -1077,183 +944,57 @@ class Screen():
         self.display_width:int = display_spec.width
         self.display_height:int = display_spec.height
 
-        self._full_draw:bool = True
-
-        tiled_height:int = display_spec.tiled_height
-        tiled_width:int = display_spec.tiled_width
-        self.tiled_height:int = tiled_height
-
-        x_offset:int = display_spec.x_offset
-        y_chin:int = display_spec.y_chin
-
-
-        self._screen_info:memoryview = memoryview(array(ARRAY_TYPE_I32, bytearray(6*4)))
+        self._screen_info:memoryview = memoryview(array(ARRAY_TYPE_I32, bytearray(3*4)))
         self._screen_info[_SC_WIDTH] = self.display_width
         self._screen_info[_SC_HEIGHT] = self.display_height
-        self._screen_info[_SC_THEIGHT] = tiled_height
-        self._screen_info[_SC_XOFFSET] = x_offset
-        self._screen_info[_SC_YCHIN] = y_chin
         self._screen_info[_SC_MAX_AHEAD] = display_spec.vscroll_stripe_size
 
+        self._draw_function = draw_function
+        self._update_info = UPDATE_GROUPS_ALL
+        self._var_lookup:dict[str, int] = {}
+        self._var_array:list = []
+        for k, v in vars.items():
+            self._var_lookup[k] = len(self._var_array)
+            if v < 0 or v > 27:
+                raise Exception("AAAAAAAA")
+            self._var_array.append(v)
+            self._var_array.append(None)
 
+    def get_var(self, key:str):
+        i = self._var_lookup[key]
+        return self._var_array[i+1]
 
-        dirty_flag_array:memoryview = memoryview(bytearray(len(components)))
-        self._dirty_flag_array:memoryview = dirty_flag_array
+    def set_var(self, key:str, value):
+        i = self._var_lookup[key]
+        update_index = self._var_array[i+0]
+        current_value = self._var_array[i+1]
+        if current_value != value:
+            self._var_array[i+1] = value
+            self._update_info |= (1<<update_index)
 
-
-        # The bitfield is used to detect overlaps in components
-        # Each array index is a row and each bit says wether that column is occupied by a component
-        com_map_y:list[list[int]] = []
-        bitfield:memoryview = self._CREATION_OVERLAP_BITMASK
-        for i in range(tiled_height):
-            bitfield[i] = 0
-            com_map_y.append([])
-
-
-        ncomponents:list['Component'] = []
-        unscrollable:list['Component'] = []
-        cid:int = 0
-        for c in components:
-            cid += 1
-            if (c.x < 0 or c.x%TILE_SIZE != 0 or
-              c.y < 0 or c.y%TILE_SIZE != 0 or
-              c.width <= 0 or c.width%TILE_SIZE != 0 or
-              c.height <= 0 or c.height%TILE_SIZE != 0):
-                raise Exception("Invalid Sizing or Positioning of Component, Components Size and Position must be aligned to "+str(TILE_SIZE)+", Position must not be negative and Size must be greater than 0")
-
-            # Get y range occupied by tile
-            cy0:int = (c.y)//TILE_SIZE
-            cy1:int = cy0+(c.height//TILE_SIZE)
-
-            # Get x range occupied by tile
-            cx0:int = (c.x)//TILE_SIZE
-            cx1:int = cx0+(c.width//TILE_SIZE)
-
-            if cy1 > tiled_height or cx1 > tiled_width:
-                raise Exception("Component goes out of screen bounds")
-
-            # Check and set flags in bitfield wether a given position is already occupied by another component
-            for cyp in range(cy0, cy1):
-                if c.scrollable:
-                    com_map_y[cyp].append(cid)
-                value = bitfield[cyp]
-                for i in range(cx0, cx1):
-                    if (value>>i)&1:
-                        raise Exception("Overlapping components detected")
-                    bitfield[cyp] |= 1<<i
-            # Register this screen to the component so that it nows its id and has a reference to the screen
-            if c.bound:
-                raise Exception("Component given to screen is already part of a screen")
-            c.bound = True
-            # Give the component a one byte memoryview into the dirty_flag_array
-            c._dirty_me = dirty_flag_array[(cid-1):cid]
-            c._dirty_r = False
-
-            if c._font is None:
-                c._font = font
-            c.dirty = False
-            ncomponents.append(c)
-
-            if not c.scrollable:
-                unscrollable.append(c)
-
-
-
-
-        last_used_offset:int = -1
-        last_used_list:list[int] = []
-        next_offset:int = _SC_YMAP_NULL_ENTRY+1
-        com_map_a:array = array(ARRAY_TYPE_U8, self._YMAP_INITIALIZER)
-        ri:int = 0
-
-        for r in com_map_y:
-            r.append(0)
-            offset:int = -1
-            if len(r) <= 1:
-                offset = _SC_YMAP_NULL_ENTRY
-            elif r == last_used_list:
-                offset = last_used_offset
-            else:
-                offset = next_offset
-                next_offset += int(len(r))
-                com_map_a.extend(r)
-                last_used_list = r
-                last_used_offset = offset
-            offset &= 0xFFFF
-            com_map_a[ri] = offset>>8
-            com_map_a[ri+1] = offset&0xFF
-            ri += 2
-
-        # This is a viper friendly representation of the map that says which components are at which height
-        # First is a section of _MAX_TILES_HEIGHT byte pairs where the first byte are the upper 8 Bits and the second byte are the lower 8 bits of a 16 Bit Integer
-        # This 16 Bit integer yields and offset into the array, which is a list of cluster ids, terminated by a null byte.
-        self.com_map_y:memoryview = memoryview(com_map_a)
-
-
-        self.components:list['Component'] = ncomponents
-        self.unscrollable_components:list['Component'] = unscrollable
-
-
-    def draw(self):
-        if self._full_draw:
-            self._draw_full()
-            return
-
+    def draw(self, full:bool=False):
         wgl = self._wgl
-        set_com_context = wgl._set_component_context
+
         bgcolor = self.bgcolor
+        if full:
+            draw_info = (UPDATE_GROUPS_ALL, -1, -1)
+        else:
+            draw_info = (self._update_info, -1, -1)
 
-        sc_info:memoryview = self._screen_info
-        X_OFFSET:int = sc_info[_SC_XOFFSET]
+        wgl._set_screen_context(bgcolor, self._font)
 
+        df = self._draw_function
+        df(self, wgl, draw_info)
+        self._update_info = 0
 
-        dirty_flag_array:memoryview = self._dirty_flag_array
-        components = self.components
-        fill = wgl._fill_uw
-
-
-        rng = range(0, len(components))
-        for i in rng:
-            # Skip where component dirty flag is zero, not one
-            if not dirty_flag_array[i]:
-                continue
-            com = components[i]
-            fill(bgcolor, X_OFFSET+com.x, com.y, com.width, com.height)
-            set_com_context(com._font, X_OFFSET+com.x, com.y, com.width, com.height, 0)
-            com_draw = com._draw
-            com_draw(com, com._state, wgl)
-            dirty_flag_array[i] = 0
-
-
-    def _draw_full(self):
-        self._full_draw = False
-        wgl = self._wgl
-        wgl._fill_uw(0, 0, 0, 240, 240)
-        set_com_context = wgl._set_component_context
-
-
-        sc_info:memoryview = self._screen_info
-        X_OFFSET:int = sc_info[_SC_XOFFSET]
-
-        dirty_flag_array:memoryview = self._dirty_flag_array
-        components = self.components
-        rng = range(0, len(components))
-        for i in rng:
-            dirty_flag_array[i] = 0
-            com = components[i]
-            set_com_context(com._font, X_OFFSET+int(com.x), int(com.y), com.width, com.height, 0)
-            com_draw = com._draw
-            com_draw(com, com._state, wgl)
-
-    def _draw_scroll(self, scroll_direction:int):
-        self._full_draw = False
+    def draw_scroll(self, scroll_direction:int):
         wgl = self._wgl
         fill = wgl._fill_uw
         sleep_ms = time.sleep_ms            # type: ignore[attr-defined]
         ticks_ms = time.ticks_ms            # type: ignore[attr-defined]
         ticks_add = time.ticks_add          # type: ignore[attr-defined]
         ticks_diff = time.ticks_diff        # type: ignore[attr-defined]
-        set_com_context = wgl._set_component_context
+        set_stripe_context = wgl._set_stripe_context
 
 
         if scroll_direction != DIRECTION_UP and scroll_direction != DIRECTION_DOWN:
@@ -1265,58 +1006,35 @@ class Screen():
         sc_info:memoryview = self._screen_info
         WIDTH:int = sc_info[_SC_WIDTH]
         HEIGHT:int = sc_info[_SC_HEIGHT]
-        TILED_HEIGHT:int = sc_info[_SC_THEIGHT]
-        X_OFFSET:int = sc_info[_SC_XOFFSET]
-        Y_CHIN:int = sc_info[_SC_YCHIN]
         MAX_AHEAD:int = sc_info[_SC_MAX_AHEAD]
         bgcolor:int = self.bgcolor
 
 
-        components = self.components
-        dirty_flag_array:memoryview = self._dirty_flag_array
-        rng = range(0, len(components))
-        for i in rng:
-            dirty_flag_array[i] = 0
-
-
-        self._clear_unscrollable()
-
-        #ymap:ptr8 = ptr8(self.com_map_y)
-        ymap:memoryview = self.com_map_y
-        #print("YMAP:  ", ymap[:(_MAX_TILES_HEIGHT*2)].hex(sep=' '), "   ", ymap[(_MAX_TILES_HEIGHT*2):].hex(sep=' '))
-
         ahead:int = 0                   # Number of lines drawing is ahead of scrolling
         scroll_next_pixel = ticks_add(ticks_ms(), SCROLL_SPEED)
         scroll_remaining:int = HEIGHT
+        draw_remaining:int = HEIGHT
 
-        current_draw_line:int = HEIGHT
-        FIRST_ROW:int = 0
-        LAST_ROW:int = TILED_HEIGHT-1
-        ypos:int = -16
-        YPOS_CHANGE:int = TILE_SIZE
+        current_draw_line:int = HEIGHT          # Position on Real Screen
+        ypos:int = 0-VSCROLL_STRIPE_SIZE                            # Position on screen object being drawn in
         SCROLL_D:int = -1
         CDL_OFFSET:int = 0
-        if scroll_direction == DIRECTION_UP:
-            SCROLL_RANGE = range(0, TILED_HEIGHT)
-        elif scroll_direction == DIRECTION_DOWN:
+        YPOS_CHANGE:int = VSCROLL_STRIPE_SIZE
+        if scroll_direction == DIRECTION_DOWN:
             current_draw_line = 0
-            FIRST_ROW = TILED_HEIGHT-1
-            LAST_ROW = 0
-            ypos = (TILED_HEIGHT*16)
-            YPOS_CHANGE = 0-TILE_SIZE
+            ypos = HEIGHT
             SCROLL_D = 1
-            CDL_OFFSET = 0-TILE_SIZE
-            SCROLL_RANGE = range(TILED_HEIGHT-1, -1, -1)
-            if Y_CHIN > 0:
-                fill(bgcolor, 0, current_draw_line-Y_CHIN, WIDTH, Y_CHIN)
-                current_draw_line -= Y_CHIN
-                ahead += Y_CHIN
+            CDL_OFFSET = 0-VSCROLL_STRIPE_SIZE
+            YPOS_CHANGE = 0-VSCROLL_STRIPE_SIZE
 
-        for trow in SCROLL_RANGE:
+        draw_function = self._draw_function
+
+        wgl._set_screen_context(bgcolor, self._font)
+
+        while draw_remaining > 0:
             ypos += YPOS_CHANGE
-
             # Scroll if there isnt enough buffer space ahead
-            while ahead+TILE_SIZE > MAX_AHEAD:
+            while ahead+VSCROLL_STRIPE_SIZE > MAX_AHEAD:
                 if int(ticks_diff(scroll_next_pixel, ticks_ms())) > 0:
                     sleep_ms(1)
                     continue
@@ -1326,38 +1044,13 @@ class Screen():
                 ahead -= 1
                 vscroll(0-SCROLL_D)
 
-            fill(bgcolor, 0, current_draw_line+CDL_OFFSET, WIDTH, TILE_SIZE)
+            stripe_size = VSCROLL_STRIPE_SIZE if draw_remaining >= VSCROLL_STRIPE_SIZE else draw_remaining
+            fill(bgcolor, 0, current_draw_line+CDL_OFFSET, WIDTH, stripe_size)
 
-            trow_x_2:int = trow<<1
-            row_offset = (ymap[trow_x_2]<<8)+ymap[trow_x_2+1]
-            while ymap[row_offset] != 0:
-                com = components[ymap[row_offset]-1]
-                row_offset += 1
-
-                com_draw = com._draw
-                yshift:int = int(com.y)-ypos
-                set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line+CDL_OFFSET, com.width, TILE_SIZE, yshift)
-                com_draw(com, com._state, wgl)
-                while ahead > 0 and int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
-                    scroll_next_pixel = ticks_add(scroll_next_pixel, SCROLL_SPEED)
-                    current_draw_line += SCROLL_D
-                    scroll_remaining -= 1
-                    ahead -= 1
-                    vscroll(0-SCROLL_D)
-            current_draw_line += YPOS_CHANGE
-            ahead += TILE_SIZE
-        if scroll_direction == DIRECTION_UP and Y_CHIN > 0:
-            while ahead+Y_CHIN+1 > MAX_AHEAD:
-                if int(ticks_diff(scroll_next_pixel, ticks_ms())) > 0:
-                    sleep_ms(1)
-                    continue
-                scroll_next_pixel = ticks_add(scroll_next_pixel, SCROLL_SPEED)
-                current_draw_line += SCROLL_D
-                scroll_remaining -= 1
-                ahead -= 1
-                vscroll(0-SCROLL_D)
-            fill(bgcolor, 0, current_draw_line, WIDTH, Y_CHIN)
-            ahead += Y_CHIN
+            set_stripe_context(self._font, current_draw_line+CDL_OFFSET, stripe_size, 0-ypos)
+            draw_info = (UPDATE_GROUPS_ALL, ypos, stripe_size)
+            draw_function(self, wgl, draw_info)
+            draw_remaining -= stripe_size
         while scroll_remaining > 0:
             if int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
                 scroll_next_pixel = ticks_add(scroll_next_pixel, SCROLL_SPEED)
@@ -1366,52 +1059,7 @@ class Screen():
             else:
                 sleep_ms(1)
 
-        self._draw_full()
-        #return
-        # Draw in Unscrollable Components now that scrolling is done
-        for com in self.unscrollable_components:
-            com.dirty = True
-            com_draw = com._draw
-            set_com_context(com._font, X_OFFSET+int(com.x), com.y, com.width, com.height, 0)
-            com_draw(com, com._state, wgl)
-            com.dirty = False
-
-    def _clear_unscrollable(self):
-        wgl = self._wgl
-        fill = wgl._fill_uw
-        #sc_info:ptr32 = ptr32(self._screen_info)
-        sc_info:memoryview = self._screen_info
-        X_OFFSET:int = sc_info[_SC_XOFFSET]
-        bgcolor:int = self.bgcolor
-        for com in self.unscrollable_components:
-            fill(bgcolor, X_OFFSET+int(com.x), com.y, com.width, com.height)
-
-    def _clear_screen(self, bgcolor:int):
-        cbgcolor:int = self.bgcolor
-        wgl = self._wgl
-        fill = wgl._fill_uw
-        # Special Case, new background color differs, so redraw entire screen
-        if bgcolor != cbgcolor:
-            fill(bgcolor, 0, 0, self.display_width, self.display_height)
-            return
-        # Just overdraw individual components
-        for com in self.components:
-            fill(bgcolor, com.x, com.x, com.width, com.height)
-
-
-
-def FillComponent(x:int, y:int, width:int, height:int, color:int):
-    def _draw_function(com, state, wgl):
-        wgl.fill(color, 0, 0, width, height)
-        wgl.draw_line(color^0xAAAA, 3, 0, 0, width-1, height-1)
-    return Component(x, y, width, height, _draw_function)
-
-def TextComponent(x:int, y:int, width:int, height:int, s:str, color:int, bgcolor:int):
-    def _draw_function(com, state, wgl):
-        wgl.draw_string(color, bgcolor, s, 0, 0)
-    return Component(x, y, width, height, _draw_function)
-
-
+        self.draw(full=True)
 
 
 
@@ -1463,23 +1111,7 @@ class WatchGraphics():
 
 
 
-    def _create_test_screen(self, v=0):
-        colors = [0xf800, 0xfba0, 0xffc0, 0xff20,   0xbfe0, 0x67e0, 0x07e2, 0x07f2,   0x07fd, 0x055f, 0x033f, 0x0ff,   0x281f, 0x781f, 0xe01f, 0xf814]
-        components = []
-        if v == 0:
-            SLICES = 11
-            TOFF = 0
-        elif v == 1:
-            SLICES = 10
-            TOFF = -16
-        for i in range(SLICES):
-            components.append(FillComponent(i*16, i*16, 16, 80, colors[i]))
-        for i in range(7):
-            components.append(TextComponent(176+TOFF, i*32, 64, 32, "TEST", colors[i], colors[i+8]))
-        return Screen(0, self, components)
-
-
-    def _set_font(self, font):
+    def set_font(self, font):
         self._font._set_font(font)
 
     def _update_current_screen(self):
@@ -1500,17 +1132,14 @@ class WatchGraphics():
     def _set_bgcolor(self, bgcolor:int):
         self.bgcolor = bgcolor
 
-    def _set_screen_context(self, bgcolor:int):
+    def _set_screen_context(self, bgcolor:int, font):
+        self.set_font(font)
         self._set_bgcolor(bgcolor)
         self._set_window(0, 0, self._display_width, self._display_height, 0)
 
-    def _set_component_context(self, font, x:int, y:int, width:int, height:int, shift_y:int):
-        self._font._set_font(font)
-        self._set_window(x, y, width, height, shift_y)
-    def _get_component_context(self):
-        return (self._font._font, self._window_info[_WGWI_XPOS], self._window_info[_WGWI_YPOS]-ARROFF, self.width, self.height, self._window_info[_WGWI_YSHIFT]-ARROFF)
-
-
+    def _set_stripe_context(self, font, y:int, height:int, shift_y:int):
+        self.set_font(font)
+        self._set_window(0, y, self._display_width, height, shift_y)
 
     def _set_screen(self, old:Screen, s:Screen, direction:int=-1):
         cs = self._screen
@@ -1518,13 +1147,11 @@ class WatchGraphics():
             raise Exception("Cant switch screen if current screen is not active")
         if s is None:
             self._screen = None
-            self._set_screen_context(0)
             return
         else:
             if cs is not None:
                 cs._clear_screen(s.bgcolor)
             self._screen = s
-            self._set_screen_context(s.bgcolor)
         if direction != DIRECTION_UP and direction != DIRECTION_DOWN:
             s._draw_full()
         else:
