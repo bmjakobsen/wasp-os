@@ -48,9 +48,9 @@ class ClockApp():
     NAME = 'Clock'
 
     def __init__(self):
-        self.appinfo = wasp.watch.wgl.create_appinfo(in_scroll=(True, DIRECTION_UP), out_scroll=(True, DIRECTION_DOWN))
+        self.appinfo = wasp.watch.wgl.create_appinfo(in_scroll=(True, DIRECTION_DOWN), out_scroll=(True, DIRECTION_UP))
 
-    def foreground(self):
+    def foreground(self, _preview:bool=False):
         """Activate the application.
 
         Configure the status bar, redraw the display and request a periodic
@@ -66,24 +66,25 @@ class ClockApp():
         c_mdig2 = Component(192, 80, 48, 64, _draw_component_digit, state={'color': True, 'digit': now[4] % 10})
         c_text_date = Component(0, 176, 240, 48, _draw_component_date, state={'date': self._day_string(now)})
         c_sep   = Component( 96, 80, 48, 64, _draw_component_colon)
-        self.components = [c_sb, c_hdig1, c_hdig2, c_mdig1, c_mdig2, c_sep, c_text_date]
 
-        s = self.appinfo.create_screen(0, self.components)
+        s = self.appinfo.create_screen(0, [c_sb, c_hdig1, c_hdig2, c_mdig1, c_mdig2, c_sep, c_text_date])
         self.appinfo.init([s])
-        wasp.system.request_tick(1000)
+        if not _preview:
+            wasp.system.request_tick(1000)
     def background(self):
         self.appinfo.free()
 
     def _update(self):
-        now = self.components[0].update()
+        components = self.appinfo.screens[0].components
+        now = components[0].update()
         if now is None:
             return
         
-        self.components[1].set_var('digit', now[3] // 10)
-        self.components[2].set_var('digit', now[3] % 10)
-        self.components[3].set_var('digit', now[4] // 10)
-        self.components[4].set_var('digit', now[4] % 10)
-        self.components[5].set_var('date', self._day_string(now))
+        components[1].set_var('digit', now[3] // 10)
+        components[2].set_var('digit', now[3] % 10)
+        components[3].set_var('digit', now[4] // 10)
+        components[4].set_var('digit', now[4] % 10)
+        components[5].set_var('date', self._day_string(now))
 
     def sleep(self):
         """Prepare to enter the low power mode.
@@ -108,8 +109,12 @@ class ClockApp():
 
     def preview(self):
         """Provide a preview for the watch face selection."""
+        self.foreground()
+        r = wasp.system.bar.clock
         wasp.system.bar.clock = False
         self._update()
+        self.background()
+        wasp.system.bar.clock = r
 
     def _day_string(self, now):
         """Produce a string representing the current day"""

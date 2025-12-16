@@ -111,16 +111,16 @@ ARRAY_TYPE_I32 = _array_get_int_type(32, unsigned=False)
 
 
 
-DIRECTION_UP = const(0)
-"""Constant that represents the direction up
-"""
 DIRECTION_DOWN = const(1)
 """Constant that represents the direction down
 """
-DIRECTION_LEFT = const(2)
+DIRECTION_UP = const(2)
+"""Constant that represents the direction up
+"""
+DIRECTION_LEFT = const(3)
 """Constant that represents the direction left
 """
-DIRECTION_RIGHT = const(3)
+DIRECTION_RIGHT = const(4)
 """Constant that represents the direction right
 """
 
@@ -996,7 +996,7 @@ class WglAppInfo():
         self._wgl:'WatchGraphics' = wgl
         self._in_scroll:tuple[bool, int] = in_scroll
         self._out_scroll:tuple[bool, int] = out_scroll
-        self._screens:list['Screen'] = []
+        self.screens:list['Screen'] = []
         self._current_screen:int = -1
     def create_screen(self, bgcolor:int, components:list['Component'], font=fonts.sans24) -> 'Screen':
         """Create a screen.
@@ -1016,21 +1016,27 @@ class WglAppInfo():
     def current_screen(self) -> 'Screen':
         if self._current_screen < 0:
             return None         # type: ignore[return-value]
-        return self._screens[self._current_screen]
+        return self.screens[self._current_screen]
+    def switch_screen(self, new_screen:'Screen', direction:int=-1):
+        cs = self.current_screen
+        if cs is None:
+            raise Exception("Cant switch screen if not active")
+        self.current_screen = new_screen
+        self._wgl._set_screen(cs, new_screen, direction=direction)
     @current_screen.setter
     def current_screen(self, screen:'Screen'):
         if self._current_screen < 0:
             raise Exception("Cant set current screen, if AppInfo is not initialized yet")
-        self._current_screen = self._screens.index(screen)
+        self._current_screen = self.screens.index(screen)
     def init(self, screens:list['Screen'], current_screen:int=0):
         if len(screens) <= 0:
             raise Exception("At least one screen must be given")
         if current_screen < 0 or current_screen >= len(screens):
             raise Exception("Invalid Current_screen specified")
-        self._screens = screens
+        self.screens = screens
         self._current_screen = current_screen
     def free(self):
-        self._screens = []
+        self.screens = []
         self._current_screen = -1
 
 
@@ -1046,7 +1052,7 @@ _SC_MAX_AHEAD = const(5)
 
 # This means that the component Grid is centered horizontally, but not vertically.
 
-
+SCROLL_SPEED = const(2)
 
 _SC_YMAP_NULL_ENTRY = const(_MAX_TILES_HEIGHT*2)
 
@@ -1195,6 +1201,7 @@ class Screen():
 
         wgl = self._wgl
         set_com_context = wgl._set_component_context
+        bgcolor = self.bgcolor
 
         sc_info:memoryview = self._screen_info
         X_OFFSET:int = sc_info[_SC_XOFFSET]
@@ -1202,6 +1209,8 @@ class Screen():
 
         dirty_flag_array:memoryview = self._dirty_flag_array
         components = self.components
+        fill = wgl._fill_uw
+
 
         rng = range(0, len(components))
         for i in rng:
@@ -1209,6 +1218,7 @@ class Screen():
             if not dirty_flag_array[i]:
                 continue
             com = components[i]
+            fill(bgcolor, X_OFFSET+com.x, com.y, com.width, com.height)
             set_com_context(com._font, X_OFFSET+com.x, com.y, com.width, com.height, 0)
             com_draw = com._draw
             com_draw(com, com._state, wgl)
@@ -1269,13 +1279,14 @@ class Screen():
             dirty_flag_array[i] = 0
 
 
+        self._clear_unscrollable()
+
         #ymap:ptr8 = ptr8(self.com_map_y)
         ymap:memoryview = self.com_map_y
         #print("YMAP:  ", ymap[:(_MAX_TILES_HEIGHT*2)].hex(sep=' '), "   ", ymap[(_MAX_TILES_HEIGHT*2):].hex(sep=' '))
 
         ahead:int = 0                   # Number of lines drawing is ahead of scrolling
-        TICKS_BETWEEN_SCROLL = 3
-        scroll_next_pixel = ticks_add(ticks_ms(), TICKS_BETWEEN_SCROLL)
+        scroll_next_pixel = ticks_add(ticks_ms(), SCROLL_SPEED)
         scroll_remaining:int = HEIGHT
 
         current_draw_line:int = HEIGHT
@@ -1309,7 +1320,7 @@ class Screen():
                 if int(ticks_diff(scroll_next_pixel, ticks_ms())) > 0:
                     sleep_ms(1)
                     continue
-                scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
+                scroll_next_pixel = ticks_add(scroll_next_pixel, SCROLL_SPEED)
                 current_draw_line += SCROLL_D
                 scroll_remaining -= 1
                 ahead -= 1
@@ -1328,7 +1339,7 @@ class Screen():
                 set_com_context(com._font, X_OFFSET+int(com.x), current_draw_line+CDL_OFFSET, com.width, TILE_SIZE, yshift)
                 com_draw(com, com._state, wgl)
                 while ahead > 0 and int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
-                    scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
+                    scroll_next_pixel = ticks_add(scroll_next_pixel, SCROLL_SPEED)
                     current_draw_line += SCROLL_D
                     scroll_remaining -= 1
                     ahead -= 1
@@ -1340,7 +1351,7 @@ class Screen():
                 if int(ticks_diff(scroll_next_pixel, ticks_ms())) > 0:
                     sleep_ms(1)
                     continue
-                scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
+                scroll_next_pixel = ticks_add(scroll_next_pixel, SCROLL_SPEED)
                 current_draw_line += SCROLL_D
                 scroll_remaining -= 1
                 ahead -= 1
@@ -1349,12 +1360,13 @@ class Screen():
             ahead += Y_CHIN
         while scroll_remaining > 0:
             if int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
-                scroll_next_pixel = ticks_add(scroll_next_pixel, TICKS_BETWEEN_SCROLL)
+                scroll_next_pixel = ticks_add(scroll_next_pixel, SCROLL_SPEED)
                 scroll_remaining -= 1
                 vscroll(0-SCROLL_D)
             else:
                 sleep_ms(1)
 
+        self._draw_full()
         #return
         # Draw in Unscrollable Components now that scrolling is done
         for com in self.unscrollable_components:
@@ -1385,9 +1397,6 @@ class Screen():
         # Just overdraw individual components
         for com in self.components:
             fill(bgcolor, com.x, com.x, com.width, com.height)
-
-    def switch_screen(self, ns:'Screen', direction:int):
-        self._wgl._set_screen(self, ns, direction=direction)
 
 
 
@@ -1549,6 +1558,9 @@ class WatchGraphics():
         :param y: y coordinate
         :type y: int
         """
+        self._blit(image, x, y)
+
+    def _blit(self, image, x:int, y:int):
         image.reset()
         window_info:ptr32 = ptr32(self._window_info)
 
@@ -1568,8 +1580,9 @@ class WatchGraphics():
         if stripped_lines > 0:
             reduce_by_lines += stripped_lines
             height -= stripped_lines
+
         if height <= 0:
-            return
+            return True
         skip_cols:int = 0
         if x < 0:
             skip_cols -= x
@@ -1581,7 +1594,7 @@ class WatchGraphics():
             reduce_by_cols += stripped_cols
             width -= stripped_cols
         if width <= 0:
-            return
+            return False
 
         if reduce_by_lines > 0:
             croppedy:VerticalCropStream = self._crop_v_stream
@@ -1635,7 +1648,7 @@ class WatchGraphics():
         if max_y >= window_height:
             height += (window_height-1)-max_y
         if width <= 0 or height <= 0:
-            return
+            return False
         self.display.wgl_fill(color, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]-ARROFF+y, width, height)
 
 
@@ -1882,8 +1895,6 @@ class WatchGraphics():
 
         font_height = font._font_height
 
-        if y >= window_height:
-            return
         if x >= window_width:
             return
         if y+font_height <= 0:
@@ -1898,7 +1909,8 @@ class WatchGraphics():
                 continue
             if x >= window_width:
                 break
-            self.blit(font, x, y)
+            if self._blit(font, x, y):
+                break
             x += cw
 
     def draw_string_a(self, color:int, bgcolor:int, s:str, x:int, y:int, width:int=0, align:int=ALIGNMENT_CENTER):
