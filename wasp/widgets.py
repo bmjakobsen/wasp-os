@@ -18,32 +18,23 @@ from micropython import const
 
 
 
-_wgl_reference = wasp.watch.drawable._wgl_bak
+_wgl = wasp.watch.drawable._wgl_bak
 
-class BatteryMeter(watchgl.Component):
+class BatteryMeter():
     """Battery meter widget.
 
     A simple battery meter with a charging indicator, will draw at the
     top-right of the display.
     """
-    def __init__(self, xoff:int=0, no_draw:bool=False, flags:int=0):
-        super().__init__(208, 0, 32, 32, self._draw_function, state={'level': -2}, flags=flags)
-        self._xoff = xoff
-        self._no_draw = no_draw
+    def __init__(self):
+        self.level = -2
         self._icon1 = watchgl.create_wasp_image_stream(icons.battery)
         self._icon2 = watchgl.create_wasp_image_stream(icons.battery)
         self._icon2._set_color(3, 0xf800)
 
-    @property
-    def level(self):
-        return self.get_var('level')
-    @level.setter
-    def level(self, v:int):
-        self.set_var('level', v)
-
     def draw(self):
         """Draw from meter (from scratch)."""
-        self.dirty = True
+        self.level = -2
         self.update()
 
     def update(self):
@@ -51,26 +42,23 @@ class BatteryMeter(watchgl.Component):
 
         The update is lazy and won't redraw unless the level has changed.
         """
+        if _wgl.redraw_widgets:
+            self.level = -2
+
         nlevel = -2
         if watch.battery.charging():
             nlevel = -1
         else:
             nlevel = watch.battery.level()
-        if not self.dirty and self.level == nlevel:
+        if self.level == nlevel:
             return
-        self.set_var('level', nlevel)
-        if not self._no_draw:
-            if not self.bound:
-                self.direct_draw(_wgl_reference)
-                self.dirty = False
-
-    def _draw_function(self, com, state, wgl):
+        self.level = nlevel
+        self._draw_function(_wgl)
+    def _draw_function(self, wgl):
         self._icon1._set_color(3, wasp.system.theme('battery'))
-        xoff = self._xoff
-
-        level = state['level']
+        level = self.level
         if level == -1:
-            wgl.blit(self._icon1, xoff+8, 0)
+            wgl.blit(self._icon1, 239-self._icon1.width, 0)
         else:
             green = level // 3
             if green > 31:
@@ -79,27 +67,24 @@ class BatteryMeter(watchgl.Component):
             rgb = (red << 11) + (green << 6)
 
             if level > 5:
-                wgl.blit(self._icon1, xoff+8, 0)
+                wgl.blit(self._icon1, 239-self._icon1.width, 0)
             else:
                 rgb = 0xf800
-                wgl.blit(self._icon2, xoff+8, 0)
+                wgl.blit(self._icon2, 239-self._icon2.width, 0)
             w = self._icon1.width - 10
-            x = 32 - 5 - w
+            x = 239 - 5 - w
             h = 2*level // 11
             if 18 - h != 0:
-                wgl.fill(0, xoff+x, 9, w, 18-h)
+                wgl.fill(0, x, 9, w, 18-h)
             if h != 0:
-                wgl.fill(rgb, xoff+x, 27-h, w, h)
+                wgl.fill(rgb, x, 27-h, w, h)
 
 
 
 
-class Clock(watchgl.Component):
+class Clock():
     """Small clock widget."""
-    def __init__(self, enabled=True, x:int=52, width:int=138, xoff:int=0, no_draw:bool=False, flags:int=0):
-        super().__init__(x, 0, width, 32, self._draw_function, state={'distext': None}, flags=flags, font=fonts.sans28)
-        self._xoff = xoff
-        self._no_draw = no_draw
+    def __init__(self, enabled=True):
         self.on_screen = None
         self.enabled = enabled
 
@@ -111,7 +96,7 @@ class Clock(watchgl.Component):
         The container is required to clear the canvas prior to the redraw
         and the clock is only drawn if it is enabled.
         """
-        self.dirty = True
+        self.on_screen = None
         self.update()
 
     def update(self):
@@ -123,37 +108,35 @@ class Clock(watchgl.Component):
         :returns: An time tuple if the time has changed since the last call,
                   None otherwise.
         """
+        if _wgl.redraw_widgets:
+            self.on_screen = None
 
         now = wasp.watch.rtc.get_localtime()
+        on_screen = self.on_screen
+        if on_screen and on_screen == now:
+            return None
 
-        old_distext = self.get_var('distext')
-        distext = ""
-        if self.enabled:
-            distext = '{:02}:{:02}'.format(now[3], now[4])
-        self.set_var('distext', distext)
+        if self.enabled and (not on_screen
+                or now[4] != on_screen[4] or now[3] != on_screen[3]):
+            self._draw_function(_wgl, now)
+        self.on_screen = now
+        return now
 
-        if not self._no_draw:
-            if not self.bound and self.dirty:
-                self.direct_draw(_wgl_reference)
-                self.dirty = False
-        if self.on_screen != now:
-            self.on_screen = now
-            return now
-        return None
+    def _draw_function(wgl, now):
+        r = wgl.get_font()
+        try:
+            wgl.set_font(fonts.sans28)
+            t1 = '{:02}:{:02}'.format(now[3], now[4])
+            wgl.draw_string(wasp.system.theme('status-clock'), 0, t1, 52, 4, width=138, align=ALIGNMENT_CENTER)
+        finally:
+            wgl.set_font(r)
 
-    def _draw_function(self, com, state, wgl):
-        xoff = self._xoff
-        distext = ""
-        if state['distext'] is not None:
-            distext = state['distext']
-        wgl.draw_string(wasp.system.theme('status-clock'), 0, distext, xoff+0, 4)
-
-class NotificationBar(watchgl.Component):
+class NotificationBar():
     """Show BT status and if there are pending notifications."""
-    def __init__(self, x:int=0, y:int=0, width:int=52, xoff:int=0, no_draw:bool=False, flags:int=0):
-        super().__init__(x, y, width, 32, self._draw_function, state={'connected': None, 'notifications': None}, flags=flags)
-        self._xoff = xoff
-        self._no_draw = no_draw
+    def __init__(self, x:int=0, y:int=0):
+        self.x = x
+        self.y = y
+        self.state = (None, None)
         self._icon_ble = watchgl.create_wasp_image_stream(icons.blestatus)
         self._icon_notif = watchgl.create_wasp_image_stream(icons.notification)
 
@@ -163,7 +146,7 @@ class NotificationBar(watchgl.Component):
         For this simple widget :py:meth:`~.draw` is simply a synonym for
         :py:meth:`~.update` because we unconditionally update from scratch.
         """
-        self.dirty = True
+        self.state = (None, None)
         self.update()
 
     def update(self):
@@ -172,47 +155,48 @@ class NotificationBar(watchgl.Component):
         This widget does not implement lazy redraw internally since this
         can often be implemented (with less state) by the container.
         """
+        if _wgl.redraw_widgets:
+            self.state = (None, None)
+
+
         draw = watch.drawable
 
-        connected = bool(wasp.watch.connected())
-        notifications = bool(wasp.system.notifications)
+        self._draw_function(_wgl)
 
-        self.set_var('connected', connected)
-        self.set_var('notifications', notifications)
-        if not self._no_draw:
-            if not self.bound and self.dirty:
-                self.direct_draw(_wgl_reference)
-                self.dirty = False
+        new_state = (bool(wasp.watch.connected()), bool(wasp.system.notifications))
 
+        if new_state == self.state:
+            return
+        self.state = new_state
+        self._draw_function(_wgl)
 
 
-    def _draw_function(self, com, state, wgl):
+    def _draw_function(self, wgl):
         self._icon_ble._set_color(3, wasp.system.theme('ble'))
         self._icon_notif._set_color(3, wasp.system.theme('notify-icon'))
-        xoff = self._xoff
 
-        connected = bool(state['connected'])
-        notifications = bool(state['notifications'])
+        x = self.x
+        y = self.y
+
+        connected, notifications = self.state
         if connected:
-            wgl.blit(self._icon_ble, xoff+0, 0)
+            wgl.blit(self._icon_ble, x, y)
             if notifications:
-                wgl.blit(self._icon_notif, xoff+22, 0),
+                wgl.blit(self._icon_notif, x+22, y),
             else:
-                wgl.fill(0, xoff+22, 0, 30, 32)
+                wgl.fill(0, x+22, y, 30, 32)
         elif notifications:
-            wgl.blit(self._icon_notif, xoff+0, 0)
-            wgl.fill(0, xoff+30, 0, 22, 32)
+            wgl.blit(self._icon_notif, x, y)
+            wgl.fill(0, x+30, y, 22, 32)
         else:
-            wgl.fill(0, xoff+0, 0, 52, 32)
+            wgl.fill(0, x, y, 52, 32)
 
-class StatusBar(watchgl.Component):
+class StatusBar():
     """Combo widget to handle notification, time and battery level."""
-    def __init__(self, flags:int=0):
-        super().__init__(0, 0, 240, 32, self._draw_function, state={'r': False}, flags=flags)
+    def __init__(self):
         self._notif = NotificationBar(flags=flags, no_draw=True, xoff=0)
         self._clock = Clock(flags=flags, no_draw=True, xoff=52)
         self._meter = BatteryMeter(flags=flags, no_draw=True, xoff=208)
-        self._smart_redraw = False
 
     @property
     def clock(self):
@@ -227,71 +211,40 @@ class StatusBar(watchgl.Component):
 
     def draw(self):
         """Redraw the status bar from scratch."""
-        self.update(force_draw=True)
+        self._clock.draw()
+        self._meter.draw()
+        self._notif.draw()
 
-    def update(self, force_draw:bool=False):
+    def update(self):
+        if _wgl.redraw_widgets:
+            self.draw()
+
         """Lazily update the status bar.
 
         :returns: An time tuple if the time has changed since the last call,
                   None otherwise.
         """
         now = self._clock.update()
-        clock_update = self._clock.dirty or force_draw
-        if clock_update:
+        if now:
             self._meter.update()
             self._notif.update()
-        bat_update = self._meter.dirty or force_draw
-        notif_update = self._notif.dirty or force_draw
-
-        if not clock_update and not bat_update and not notif_update:
-            return now
-
-        self._smart_redraw = True
-        if force_draw:
-            self._smart_redraw = False
-        if self.bound:
-            r = self.get_var('r')
-            self.set_var('r', (not r))
-        else:
-            self.direct_draw(_wgl_reference)
-            self.dirty = False
         return now
 
-    def _draw_function(self, com, state, wgl):
-        force_redraw = not self._smart_redraw
-        for com in [self._notif, self._clock, self._meter]:
-            if com.dirty or force_redraw:
-                com_draw = com._draw
-                com_draw(com, com._state, wgl)
-                com.dirty = False
-        self._smart_redraw = False
 
-
-class ScrollIndicator(watchgl.Component):
+class ScrollIndicator():
     """Scrolling indicator.
 
     A pair of arrows that prompted the user to swipe up/down to access
     additional pages of information.
     """
-    def __init__(self, x=240-16, y=240-32, flags:int=0):
-        super().__init__(x, y, 16, 32, self._draw_function, state={'up': True, 'down':True}, flags=flags)
+    def __init__(self, x=240-18, y=240-24):
+        self.x = x
+        self.y = y
+        self.up = True
+        self.down = True
+        self.state = (None, None)
         self._icon_up = watchgl.create_wasp_image_stream(icons.up_arrow)
         self._icon_down = watchgl.create_wasp_image_stream(icons.down_arrow)
-
-    @property
-    def up(self):
-        return self.get_var('up')
-    @up.setter
-    def up(self, v):
-        return self.set_var('up', v)
-
-    @property
-    def down(self):
-        return self.get_var('down')
-    @up.setter
-    def down(self, v):
-        return self.set_var('down', v)
-
 
     def draw(self):
         """Draw from scrolling indicator.
@@ -299,29 +252,33 @@ class ScrollIndicator(watchgl.Component):
         For this simple widget :py:meth:`~.draw` is simply a synonym for
         :py:meth:`~.update`.
         """
-        self.dirty = True
+        self.state = (None, None)
         self.update()
 
     def update(self):
+        if _wgl.redraw_widgets:
+            self.state = (None, None)
+
         """Update from scrolling indicator."""
+        new_state = (self.up, self.down)
+        if new_state == self.state:
+            return
+        self.state = new_state
+        self._draw_function(_wgl)
+
+    def _draw_function(self, wgl):
         draw = watch.drawable
         color = wasp.system.theme('scroll-indicator')
+        self._icon_up._set_color(3, color)
+        self._icon_down._set_color(3, color)
+        if self.up:
+            wgl.blit(self._icon_up, x, y)
+        if self.down:
+            wgl.blit(self._icon_down, x, y+13)
 
-        if not self.bound and self.dirty:
-            self.direct_draw(_wgl_reference)
-            self.dirty = False
-
-    def _draw_function(self, com, state, wgl):
-        self._icon_up._set_color(3, wasp.system.theme('scroll-indicator'))
-        self._icon_down._set_color(3, wasp.system.theme('scroll-indicator'))
-        if state['up']:
-            wgl.blit(self._icon_up, -1, 8)
-        if state['down']:
-            wgl.blit(self._icon_down, -1, 8+13)
-
-class Button(watchgl.Component):
+class Button():
     """A button with a text label."""
-    def __init__(self, x, y, w, h, label, state:bool=True, flags:int=watchgl.COMFLAG_DEFAULT):
+    def __init__(self, x, y, w, h, label)(None, None):
         super().__init__(x, y, w, h, self._draw_function, font=fonts.sans24, state={'toggle': state}, flags=flags)
         self._im = (x, y, w, h, label)
         self._label = label
@@ -339,7 +296,7 @@ class Button(watchgl.Component):
             self.set_var('toggle', toggle)
 
         if not self.bound and self.dirty:
-            self.direct_draw(_wgl_reference)
+            self.direct_draw(_wgl)
             self.dirty = False
 
     def _draw_function(self, com, state, wgl):
@@ -442,7 +399,7 @@ class Checkbox(watchgl.Component):
     def update(self):
         """Draw the checkbox."""
         if not self.bound and self.dirty:
-            self.direct_draw(_wgl_reference)
+            self.direct_draw(_wgl)
             self.dirty = False
 
 
@@ -496,7 +453,7 @@ class GfxButton(watchgl.Component):
         im = self._im
 
         if not self.bound:
-            self.direct_draw(_wgl_reference)
+            self.direct_draw(_wgl)
             self.dirty = False
 
     def _draw_function(self, com, state, wgl):
@@ -559,7 +516,7 @@ class Slider(watchgl.Component):
 
     def draw(self):
         if not self.bound:
-            self.direct_draw(_wgl_reference)
+            self.direct_draw(_wgl)
             dirty = False
 
     def update(self):
@@ -622,7 +579,7 @@ class Spinner(watchgl.Component):
     def update(self):
         """Update the spinner value."""
         if not self.bound and self.dirty:
-            self.direct_draw(_wgl_reference)
+            self.direct_draw(_wgl)
             self.dirty = False
 
     def touch(self, event):
