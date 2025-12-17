@@ -169,7 +169,7 @@ class Manager():
                 gc.collect()
                 free = gc.mem_free()
 
-            self.switch(self.quick_ring[0])
+            self.switch(self.quick_ring[0], no_scroll=True)
 
     def register_defaults(self):
         """Register the default applications."""
@@ -249,7 +249,7 @@ class Manager():
         """Cached copy of the current vibrator pulse duration in milliseconds"""
         return self._nfylev_ms
 
-    def switch(self, app):
+    def switch(self, app, no_scroll:bool=False):
         """Switch to the requested application.
         """
         if self.app is app:
@@ -296,6 +296,8 @@ class Manager():
             self._switch_scroll = app.appinfo._out_scroll
             if cscreen is not None and scroll_direction < 0:
                 cscreen._clear_screen(screen.bgcolor)
+            if no_scroll:
+                scroll_direction = -1
             watch.wgl._set_screen(None, app.appinfo.current_screen, direction=scroll_direction)
             watch.display.mute(False)
         else:

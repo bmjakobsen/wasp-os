@@ -1240,7 +1240,10 @@ class WatchGraphics():
             return
         self._screen = s
         if direction != DIRECTION_UP and direction != DIRECTION_DOWN:
-            cs._clear_screen(s.bgcolor)
+            if cs is None:
+                s._clear_screen(s.bgcolor)
+            else:
+                cs._clear_screen(s.bgcolor)
             s.draw(full=True)
         else:
             s._draw_scroll(direction)
