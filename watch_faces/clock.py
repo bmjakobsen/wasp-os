@@ -13,7 +13,7 @@ Shows a time (as HH:MM) together with a battery meter and the date.
 import wasp
 
 import fonts.clock as digits
-from watchgl import create_wasp_image_stream, WglAppInfo, Component, DIRECTION_UP, DIRECTION_DOWN, ALIGNMENT_CENTER
+from watchgl import create_wasp_image_stream, Screen, WglAppInfo, DIRECTION_UP, DIRECTION_DOWN, ALIGNMENT_CENTER
 
 DIGITS_COLON = create_wasp_image_stream(digits.clock_colon)
 DIGITS = (
@@ -25,22 +25,32 @@ DIGITS = (
 MONTH = 'JanFebMarAprMayJunJulAugSepOctNovDec'
 
 
-def _draw_component_colon(com, state, wgl):
-    DIGITS_COLON._set_color(3, wasp.watch.drawable.lighten(wasp.system.theme('mid'), 1))
-    wgl.blit(DIGITS_COLON, 0, 0)
 
-def _draw_component_digit(com, state, wgl):
-    color_hi = state['color']
-    if color_hi:
-        color =  wasp.system.theme('bright')
-    else:
-        color =  wasp.system.theme('mid')
-    digit = state['digit']
-    DIGITS[digit]._set_color(3, color)
-    wgl.blit(DIGITS[digit], 0, 0)
-
-def _draw_component_date(com, state, wgl):
-    wgl.draw_string_a(wasp.system.theme('bright'), 0, state['date'], 0, 4, width=240, align=ALIGNMENT_CENTER)
+def _draw_function(screen:'Screen', wgl, draw_info):
+    global DIGITS, DIGITS_COLON
+    update_groups, stripe_start, stripe_width = draw_info
+    stripe_end = stripe_start + stripe_width
+    hilo =  (wasp.system.theme('mid'), wasp.system.theme('bright'))
+    mid = wasp.watch.drawable.lighten(hilo[0], 1)
+    already_updated = False
+    if update_groups&(1<<5):
+        if stripe_start < (80+64) and stripe_end >= 80:
+            DIGITS_COLON._set_color(3, wasp.watch.drawable.lighten(wasp.system.theme('mid'), 1))
+            wgl.blit(DIGITS_COLON, 2*48, 80)
+    if update_groups&(1<<6):
+        bar = screen.get_var('bar')
+        if stripe_start < (0+32) and stripe_end >= 0:
+            bar.draw()
+    for si, i, x in (('h0', 0, 0), ('h1', 1, 48), ('m0', 2, 144), ('m1', 3, 192)):
+        if not update_groups&(1<<i):
+            continue
+        if stripe_start >= (80+64) or stripe_end < 80:
+            continue
+        digit = DIGITS[screen.get_var(si)]
+        digit._set_color(3, hilo[i%2])
+        wgl.blit(digit, x, 80)
+    if update_groups&(1<<4) and stripe_start < (176+48) and stripe_end >= 176:
+        wgl.draw_string_a(wasp.system.theme('bright'), 0, screen.get_var('date'), 0, 176+4, width=240, align=ALIGNMENT_CENTER)
 
 
 class ClockApp():
@@ -58,33 +68,30 @@ class ClockApp():
         """
         now = wasp.watch.rtc.get_localtime()
 
-        c_sb = wasp.widgets.StatusBar()
-        c_sb.clock = False
-        c_hdig1 = Component(  0, 80, 48, 64, _draw_component_digit, state={'color': False, 'digit': now[3] // 10})
-        c_hdig2 = Component( 48, 80, 48, 64, _draw_component_digit, state={'color': True, 'digit': now[3] % 10})
-        c_mdig1 = Component(144, 80, 48, 64, _draw_component_digit, state={'color': False, 'digit': now[4] // 10})
-        c_mdig2 = Component(192, 80, 48, 64, _draw_component_digit, state={'color': True, 'digit': now[4] % 10})
-        c_text_date = Component(0, 176, 240, 48, _draw_component_date, state={'date': self._day_string(now)})
-        c_sep   = Component( 96, 80, 48, 64, _draw_component_colon)
-
-        s = self.appinfo.create_screen(0, [c_sb, c_hdig1, c_hdig2, c_mdig1, c_mdig2, c_sep, c_text_date])
+        s = self.appinfo.create_screen(0, _draw_function, {'h0': 0, 'h1': 1, 'm0': 2, 'm1': 3, 'date': 4, 'bar': 5, 'bar_update': 6})
+        self._bar = wasp.widgets.StatusBar()
+        self._bar.clock = False
+        s.set_var('bar', self._bar, changed=True)
         self.appinfo.init([s])
+        self._update()
         if not _preview:
             wasp.system.request_tick(1000)
     def background(self):
         self.appinfo.free()
 
     def _update(self):
-        components = self.appinfo.screens[0].components
-        now = components[0].update()
+        bar = self._bar
+        bar.clock = False
+        now = bar.update()
         if now is None:
             return
-        
-        components[1].set_var('digit', now[3] // 10)
-        components[2].set_var('digit', now[3] % 10)
-        components[3].set_var('digit', now[4] // 10)
-        components[4].set_var('digit', now[4] % 10)
-        components[5].set_var('date', self._day_string(now))
+        s = self.appinfo.screens[0]
+        s.set_var('h0', now[3] // 10)
+        s.set_var('h1', now[3] % 10)
+        s.set_var('m0', now[4] // 10)
+        s.set_var('m1', now[4] % 10)
+        s.set_var('date', self._day_string(now))
+        s.set_var('bar_update', None, changed=True)
 
     def sleep(self):
         """Prepare to enter the low power mode.
