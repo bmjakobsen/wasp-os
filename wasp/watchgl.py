@@ -1421,6 +1421,13 @@ _WGWI_XPOS = const(2)
 _WGWI_YPOS = const(3)
 _WGWI_YSHIFT = const(4)
 
+_WGL_BLIT_NOT_SKIPPED = const(0)
+_WGL_BLIT_SKIPPED = const(0)
+_WGL_BLIT_SKIPPED_XR = const(1)
+_WGL_BLIT_SKIPPED_Y_OFF = const(2)
+_WGL_BLIT_SKIPPED_YU = const(2)
+_WGL_BLIT_SKIPPED_YD = const(3)
+
 _DEFAULT_BGCOLOR = const(0)
 
 _C_TO_RADIANS:float = (math.pi / 180)
@@ -1560,7 +1567,7 @@ class WatchGraphics():
         """
         self._blit(image, x, y)
 
-    def _blit(self, image, x:int, y:int):
+    def _blit(self, image, x:int, y:int) -> int:
         image.reset()
         window_info:ptr32 = ptr32(self._window_info)
 
@@ -1581,8 +1588,8 @@ class WatchGraphics():
             reduce_by_lines += stripped_lines
             height -= stripped_lines
 
-        if height <= 0:
-            return True
+        if height <= 0:         # return either _WGL_BLIT_SKIPPED_YU or _WGL_BLIT_SKIPPED_YD only needed for draw_text
+            return _WGL_BLIT_SKIPPED_Y_OFF+int(skip_lines <= 0)
         skip_cols:int = 0
         if x < 0:
             skip_cols -= x
@@ -1594,7 +1601,7 @@ class WatchGraphics():
             reduce_by_cols += stripped_cols
             width -= stripped_cols
         if width <= 0:
-            return False
+            return int(skip_cols <= 0)          # Return either _WGL_BLIT_SKIPPED or _WGL_BLIT_SKIPPED_XR only relevant for drawing text
 
         if reduce_by_lines > 0:
             croppedy:VerticalCropStream = self._crop_v_stream
@@ -1608,6 +1615,7 @@ class WatchGraphics():
 
         self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]-ARROFF+y)
         #image.reset()
+        return _WGL_BLIT_NOT_SKIPPED
 
 
     # Fill on screen but ignore current window
@@ -1710,11 +1718,17 @@ class WatchGraphics():
 
 
         window_info:ptr32 = ptr32(self._window_info)
+        window_width:int = window_info[_WGWI_WIDTH]
+        window_height:int = window_info[_WGWI_HEIGHT]
 
         # Shift content by y, do not shift before, else it would be shifted twice, when using simple fill operations
         yshift:int = window_info[_WGWI_YSHIFT]-ARROFF
         y0 += yshift
         y1 += yshift
+
+        # Check if line is completely above or below the window, helpful for optimizing scrolling
+        if (y0+width < 0 and y1+width < 0) or (y0-width >= window_height and y1-width >= window_height):
+            return
 
 
 
@@ -1733,8 +1747,6 @@ class WatchGraphics():
         fill_h:int = -1
 
         error:int = dx_x2+dy_x2
-        window_width:int = window_info[_WGWI_WIDTH]
-        window_height:int = window_info[_WGWI_HEIGHT]
 
         wgl_fill = self.display.wgl_fill
 
@@ -1895,11 +1907,6 @@ class WatchGraphics():
 
         font_height = font._font_height
 
-        if x >= window_width:
-            return
-        if y+font_height <= 0:
-            return
-
         for c in s:
             font._set_ch(c)
             cw:int = int(font.width)
@@ -1907,9 +1914,8 @@ class WatchGraphics():
             if x+cw <= 0:
                 x += cw
                 continue
-            if x >= window_width:
-                break
-            if self._blit(font, x, y):
+            r = self._blit(font, x, y)
+            if r == _WGL_BLIT_SKIPPED_XR or r == _WGL_BLIT_SKIPPED_YD or (r == _WGL_BLIT_SKIPPED_YU and ch >= font_height):
                 break
             x += cw
 
