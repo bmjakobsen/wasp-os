@@ -276,10 +276,10 @@ class Button():
         bg = wasp.watch.drawable.darken(wasp.system.theme('ui'))
         frame = wasp.system.theme('mid')
         txt = wasp.system.theme('bright')
-        self.set_colors('ui', 'mid', 'bright')
+        self._set_colors('ui', 'mid', 'bright')
         self.update(_redraw=True)
 
-    def set_colors(self, bg, frame, txt):
+    def _set_colors(self, bg, frame, txt):
         self._colors = (bg, frame, txt)
 
     def update(self, _redraw=False):
@@ -300,12 +300,11 @@ class Button():
         if new_colors == self._rcolors:
             return
         self._rcolors = new_colors
-        self._state = new_state
 
-        self._draw_function(_wgl, bg, frame, text)
+        self._draw_function(_wgl, bg, frame, txt)
 
     def _draw_function(self, wgl, bg, frame, txt):
-        label = self._label
+        label = self._im[4]
 
         x, y, w, h, label = self._im
         wgl.fill(bg, x, y, w, h)
@@ -407,7 +406,7 @@ class Checkbox():
         """Handle touch events."""
         x = event[1]
         y = event[2]
-        ix, iy, _ = self._im
+        ix, _, iy, _ = self._im
         if (self.label or ix <= x < ix+40) and iy <= y < iy+40:
             self.state = not self.state
             self.update()
@@ -428,7 +427,7 @@ class GfxButton():
         if not _redraw and not _wgl.redraw_widgets:
             return
         x, y = self._im
-        wgl.blit(self._gfx, x, y)
+        _wgl.blit(self._gfx, x, y)
 
     def touch(self, event):
         x = event[1]
@@ -492,10 +491,10 @@ class Slider():
         light = self._lowlight
 
         knob_x = x + (_SLIDER_TRACK * value) // (self._steps-1)
-        w1 = x - knob_x
+        w1 = knob_x - x
         wgl.fill(0, x, y, _SLIDER_WIDTH, _SLIDER_TRACK_Y1)
-        wgl.fill(self._color, x+_SLIDER_KNOB_RADIUS, y+_SLIDER_TRACK_Y1, w1-_SLIDER_KNOB_RADIUS, _SLIDER_TRACK_HEIGHT)
-        wgl.fill(self._light, knob_x, y+_SLIDER_TRACK_Y1, (_SLIDER_WIDTH-w1)-_SLIDER_KNOB_RADIUS, _SLIDER_TRACK_HEIGHT)
+        wgl.fill(color, x+_SLIDER_KNOB_RADIUS, y+_SLIDER_TRACK_Y1, w1-_SLIDER_KNOB_RADIUS, _SLIDER_TRACK_HEIGHT)
+        wgl.fill(light, knob_x, y+_SLIDER_TRACK_Y1, (_SLIDER_WIDTH-w1)-_SLIDER_KNOB_RADIUS, _SLIDER_TRACK_HEIGHT)
         wgl.fill(0, x, y+_SLIDER_TRACK_Y2, _SLIDER_WIDTH, _SLIDER_TRACK_Y1)
 
         icon_knob = self._icon_knob
@@ -504,7 +503,7 @@ class Slider():
 
     def touch(self, event):
         tx = event[1]
-        threshold = self.x + 20 - (self._stepsize / 2)
+        threshold = self._x + 20 - (self._stepsize / 2)
         v = int((tx - threshold) / self._stepsize)
         if v < 0:
             v = 0
@@ -540,8 +539,8 @@ class Spinner():
             self._value = None
         if self.value == self._value:
             return
-        self.value = self._value
-        self._draw_function(self, _wgl, self.value)
+        self._value = self.value
+        self._draw_function(_wgl, self.value)
 
     def _draw_function(self, wgl, value):
         x, y, mn, mx, field, _ = self._im
@@ -607,7 +606,7 @@ class Stopwatch:
     def draw(self):
         self.update(_redraw=True)
 
-    def update(self, redraw=False):
+    def update(self, _redraw=False):
         # Before we do anything else let's make sure count is
         # up to date
         if _redraw or _wgl.redraw_widgets:
@@ -654,8 +653,8 @@ class ConfirmationView:
 
         mute(True)
         color = wasp.system.theme('bright')
-        wgl.fill(0, 0, 0, 240, 240)
-        wgl.draw_string_a(color, 0, message, 0, 60, width=120, align=watchgl.ALIGNMENT_CENTER, font=fonts.sans24)
+        _wgl.fill(0, 0, 0, 240, 240)
+        _wgl.draw_string_a(color, 0, message, 0, 60, width=120, align=watchgl.ALIGNMENT_CENTER, font=fonts.sans24)
         self._yes.draw()
         self._no.draw()
         self._message = message
