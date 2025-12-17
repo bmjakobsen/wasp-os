@@ -494,8 +494,8 @@ class Slider():
         knob_x = x + (_SLIDER_TRACK * value) // (self._steps-1)
         w1 = x - knob_x
         wgl.fill(0, x, y, _SLIDER_WIDTH, _SLIDER_TRACK_Y1)
-        wgl.fill(self._color, x+_SLIDER_KNOB_RADIUS, y+_SLIDER_TRACK_Y1, w1-SLIDER_KNOB_RADIUS, _SLIDER_TRACK_HEIGHT)
-        wgl.fill(self._light, knob_x, y+_SLIDER_TRACK_Y1, (_SLIDER_WIDTH-w1)-SLIDER_KNOB_RADIUS, _SLIDER_TRACK_HEIGHT)
+        wgl.fill(self._color, x+_SLIDER_KNOB_RADIUS, y+_SLIDER_TRACK_Y1, w1-_SLIDER_KNOB_RADIUS, _SLIDER_TRACK_HEIGHT)
+        wgl.fill(self._light, knob_x, y+_SLIDER_TRACK_Y1, (_SLIDER_WIDTH-w1)-_SLIDER_KNOB_RADIUS, _SLIDER_TRACK_HEIGHT)
         wgl.fill(0, x, y+_SLIDER_TRACK_Y2, _SLIDER_WIDTH, _SLIDER_TRACK_Y1)
 
         icon_knob = self._icon_knob

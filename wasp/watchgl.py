@@ -1083,13 +1083,13 @@ class Screen():
         current_draw_line:int = HEIGHT          # Position on Real Screen
         ypos:int = 0-VSCROLL_STRIPE_SIZE                            # Position on screen object being drawn in
         SCROLL_D:int = -1
-        CDL_OFFSET:int = 0
+        CDL_OFFSET_FACTOR:int = 0
         YPOS_CHANGE:int = VSCROLL_STRIPE_SIZE
         if scroll_direction == DIRECTION_DOWN:
             current_draw_line = 0
             ypos = HEIGHT
             SCROLL_D = 1
-            CDL_OFFSET = 0-VSCROLL_STRIPE_SIZE
+            CDL_OFFSET_FACTOR = -1
             YPOS_CHANGE = 0-VSCROLL_STRIPE_SIZE
 
         draw_function = self._draw_function
@@ -1110,12 +1110,16 @@ class Screen():
                 vscroll(0-SCROLL_D)
 
             stripe_size = VSCROLL_STRIPE_SIZE if draw_remaining >= VSCROLL_STRIPE_SIZE else draw_remaining
+            CDL_OFFSET = CDL_OFFSET_FACTOR*stripe_size
             fill(bgcolor, 0, current_draw_line+CDL_OFFSET, WIDTH, stripe_size)
 
             set_stripe_context(self._font, current_draw_line+CDL_OFFSET, stripe_size, 0-ypos)
             draw_info = (UPDATE_GROUPS_ALL, ypos, stripe_size)
             draw_function(self, wgl, draw_info)
             draw_remaining -= stripe_size
+            current_draw_line += (0-1)*SCROLL_D*VSCROLL_STRIPE_SIZE
+            ahead += stripe_size
+
         while scroll_remaining > 0:
             if int(ticks_diff(scroll_next_pixel, ticks_ms())) < 0:
                 scroll_next_pixel = ticks_add(scroll_next_pixel, SCROLL_SPEED)
@@ -1229,13 +1233,14 @@ class WatchGraphics():
         if old is not None and cs is not old:
             raise Exception("Cant switch screen if current screen is not active")
         if s is None:
-            self._screen = None
-            return
-        else:
             if cs is not None:
-                cs._clear_screen(s.bgcolor)
-            self._screen = s
+                cs._clear_screen(0)
+            self._screen = None
+            self._set_screen_context(0, fonts.sans24)
+            return
+        self._screen = s
         if direction != DIRECTION_UP and direction != DIRECTION_DOWN:
+            cs._clear_screen(s.bgcolor)
             s.draw(full=True)
         else:
             s._draw_scroll(direction)

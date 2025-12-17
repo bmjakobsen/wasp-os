@@ -18,6 +18,8 @@ _icon_stream = AutoFormatImageStream()
 def _draw_function(screen:'Screen', wgl, draw_info):
     updated_groups, stripe_start, stripe_width = draw_info
     stripe_end = stripe_start + stripe_width
+    scroll = screen.get_var('scroller')
+    updated_already = False
     for i in range(4):
         if updated_groups&(1<<i) == 0:
             continue
@@ -34,9 +36,12 @@ def _draw_function(screen:'Screen', wgl, draw_info):
             icon = self.get_var('ficon')
         icon.reset()
         wgl.blit(icon, x+13, y+12)
+        if i == 1:
+            scroll.update(_redraw=True)
+            updated_already = True
         wgl.draw_string_a(wasp.system.theme('mid'), 0, app.NAME, x, y+120-30, width=120, align=ALIGNMENT_CENTER)
-    scroll = screen.get_var('scroller')
-    scroll.update()
+    if not updated_already:
+        scroll.update()
 
 
 class LauncherApp():
@@ -119,7 +124,7 @@ class LauncherApp():
 
 
         sc = self.appinfo.screens[page_num%2]
-        for i,si in [(0, 'a0'), (0, 'a1'), (0, 'a2'), (0, 'a3')]:
+        for i,si in [(0, 'a0'), (1, 'a1'), (2, 'a2'), (3, 'a3')]:
             sc.set_var(si, page[i], changed=True)
 
         scroll = sc.get_var('scroller')
