@@ -11,31 +11,46 @@
 import fonts.sans24
 import wasp
 import icons
-from watchgl import create_wasp_image_stream, WglAppInfo, Component, DIRECTION_UP, DIRECTION_DOWN, ALIGNMENT_CENTER, ALIGNMENT_LEFT
+from watchgl import create_wasp_image_stream, Screen, WglAppInfo, DIRECTION_UP, DIRECTION_DOWN, ALIGNMENT_CENTER, ALIGNMENT_LEFT, AutoFormatImageStream
 
-def _draw_component_icon(com, state, wgl):
-    if state['i1'] is not None:
-        wgl.blit(state['i1'], 0, 0)
-    if state['i2'] is not None:
-        wgl.blit(state['i2'], 208-96, 0)
-def _draw_component_name(com, state, wgl):
-    color = wasp.system.theme('mid')
-    wgl.draw_string_a(color, 0, state['n1'], 0, 2, width=120, align=ALIGNMENT_CENTER)
-    wgl.draw_string_a(color, 0, state['n2'], 120, 2, width=120, align=ALIGNMENT_CENTER)
+_PAGE_COORD_MAP = (("a0", 0,0), ("a1", 120, 0), ("a2", 0, 120), ("a3", 120, 120))
+_icon_stream = AutoFormatImageStream()
+def _draw_function(screen:'Screen', wgl, draw_info):
+    updated_groups, stripe_start, stripe_width = draw_info
+    stripe_end = stripe_start + stripe_width
+    for i in range(4):
+        if updated_groups&(1<<i) == 0:
+            continue
+        si,x,y = _PAGE_COORD_MAP[i]
+        if stripe_end < y or stripe_start >= y+120:
+            continue
+        app = screen.get_var(si)
+        if not app:
+            continue
+        if hasattr(app, 'ICON'):
+            icon = _icon_stream
+            icon.set_auto_content(app.ICON)
+        else:
+            icon = self.get_var('ficon')
+        icon.reset()
+        wgl.blit(icon, x+13, y+12)
+        wgl.draw_string_a(wasp.system.theme('mid'), 0, app.NAME, x, y+120-30, width=120, align=ALIGNMENT_CENTER)
+    scroll = screen.get_var('scroller')
+    scroll.update()
+
 
 class LauncherApp():
     """An application launcher application."""
     NAME = 'Launcher'
     ICON = icons.app
 
+
+
     def __init__(self):
         self.appinfo = wasp.watch.wgl.create_appinfo(in_scroll=(False, DIRECTION_UP), out_scroll=(True, DIRECTION_DOWN))
-        self._fallback_icon = create_wasp_image_stream(icons.app)
-        self._cached_icons = []
 
     def background(self):
         self.appinfo.free()
-        self._cached_icons = []
 
     def foreground(self):
         """Activate the application."""
@@ -43,13 +58,9 @@ class LauncherApp():
         
         r = []
         for _ in range(2):
-            s = self.appinfo.create_screen(0, [
-                Component(16, 16, 208, 64, _draw_component_icon, state={'i1': None, 'i2': None, 'n1': "", 'n2': ""}),
-                Component(16, 144, 208, 64, _draw_component_icon, state={'i1': None, 'i2': None, 'n1': "", 'n2': ""}),
-                Component(0, 16+64, 240, 32, _draw_component_name, state={'i1': None, 'i2': None, 'n1': "", 'n2': ""}),
-                Component(0, 144+64, 240, 32, _draw_component_name, state={'i1': None, 'i2': None, 'n1': "", 'n2': ""}),
-                wasp.widgets.ScrollIndicator(y=16)
-            ], font=fonts.sans24)
+            s = self.appinfo.create_screen(0, _draw_function, { 'a0': 0, 'a1': 1, 'a2': 2, 'a3': 3, 'scroller': 4, 'ficon': 5 }, font=fonts.sans24)
+            s.set_var('scroller', wasp.widgets.ScrollIndicator(y=6))
+            s.set_var('ficon', create_wasp_image_stream(icons.app))
             r.append(s)
         self.appinfo.init(r)
         self._update_page()
@@ -103,56 +114,14 @@ class LauncherApp():
         return page
 
     def _update_page(self):
-        if len(self._cached_icons) == 0:
-            for _ in range(self._num_pages*4):
-                self._cached_icons.append(None)
-
         page_num = self._page
         page = self._get_page(page_num)
-        icon_cache_offset = page_num*4
-        for i in range(4):
-            if page[i] is None:
-                continue
-            if self._cached_icons[icon_cache_offset+i] is None:
-                if hasattr(page[i], 'ICON'):
-                    self._cached_icons[icon_cache_offset+i] = create_wasp_image_stream(page[i].ICON)
-                else:
-                    self._cached_icons[icon_cache_offset+i] = self._fallback_icon
 
 
-        ci = self._cached_icons
         sc = self.appinfo.screens[page_num%2]
-        c1 = sc.components[0]
-        c2 = sc.components[1]
-        n1 = sc.components[2]
-        n2 = sc.components[3]
-        scroll = sc.components[4]
+        for i,si in [(0, 'a0'), (0, 'a1'), (0, 'a2'), (0, 'a3')]:
+            sc.set_var(si, page[i], changed=True)
 
-        if page[0]:
-            c1.set_var('i1', ci[icon_cache_offset+0])
-            n1.set_var('n1', page[0].NAME)
-        else:
-            c1.set_var('i1', None)
-            n1.set_var('n1', "")
-        if page[1]:
-            c1.set_var('i2', ci[icon_cache_offset+1])
-            n1.set_var('n2', page[1].NAME)
-        else:
-            c1.set_var('i2', None)
-            n1.set_var('n2', "")
-
-        if page[2]:
-            c2.set_var('i1', ci[icon_cache_offset+2])
-            n2.set_var('n1', page[2].NAME)
-        else:
-            c2.set_var('i1', None)
-            n2.set_var('n1', "")
-        if page[3]:
-            c2.set_var('i2', ci[icon_cache_offset+3])
-            n2.set_var('n2', page[3].NAME)
-        else:
-            c2.set_var('i2', None)
-            n2.set_var('n2', "")
-
+        scroll = sc.get_var('scroller')
         scroll.up = page_num > 0
         scroll.down = page_num < (self._num_pages-1)

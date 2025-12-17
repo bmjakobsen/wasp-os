@@ -120,7 +120,7 @@ class Clock():
         self.on_screen = now
         return now
 
-    def _draw_function(wgl, now):
+    def _draw_function(self, wgl, now):
         t1 = '{:02}:{:02}'.format(now[3], now[4])
         wgl.draw_string_a(wasp.system.theme('status-clock'), 0, t1, 52, 4, width=138, align=watchgl.ALIGNMENT_CENTER, font=fonts.sans28)
 
@@ -183,9 +183,9 @@ class NotificationBar():
 class StatusBar():
     """Combo widget to handle notification, time and battery level."""
     def __init__(self):
-        self._notif = NotificationBar(flags=flags, no_draw=True, xoff=0)
-        self._clock = Clock(flags=flags, no_draw=True, xoff=52)
-        self._meter = BatteryMeter(flags=flags, no_draw=True, xoff=208)
+        self._notif = NotificationBar()
+        self._clock = Clock()
+        self._meter = BatteryMeter()
 
     @property
     def clock(self):
@@ -260,9 +260,9 @@ class ScrollIndicator():
         self._icon_up._set_color(3, color)
         self._icon_down._set_color(3, color)
         if self.up:
-            wgl.blit(self._icon_up, x, y)
+            wgl.blit(self._icon_up, self.x, self.y)
         if self.down:
-            wgl.blit(self._icon_down, x, y+13)
+            wgl.blit(self._icon_down, self.x, self.y+13)
 
 class Button():
     """A button with a text label."""
@@ -646,7 +646,7 @@ class ConfirmationView:
         self.value = False
         self._yes = Button(20, 140, 90, 45, 'Yes')
         self._no = Button(130, 140, 90, 45, 'No')
-        self._message = message
+        self._message = None
 
     def draw(self, message):
         draw = wasp.watch.drawable

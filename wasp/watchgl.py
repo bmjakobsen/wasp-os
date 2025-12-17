@@ -548,7 +548,8 @@ _MRIS_COLOR = const(3)
 _MRIS_RLEN = const(4)
 _MRIS_INDEX = const(5)
 class WaspRle1ImageStream():
-    def __init__(self, raw_data:memoryview, width:int, height:int, palette:list[int]=[0, 0xFFFF]):
+    DEFAULT_PALETTE = [0, 0xFFFF]
+    def __init__(self, raw_data:memoryview, width:int, height:int, palette:list[int]=DEFAULT_PALETTE):
         """ImageStream for displaying a one bit RLE Image
 
         :param raw_data: Raw Data of the image
@@ -710,7 +711,8 @@ _R2IS_RLEN = const(5)
 _R2IS_INDEX = const(6)
 _R2IS_MAXINDEX = const(7)
 class WaspRle2ImageStream():
-    def __init__(self, raw_data:memoryview, width:int, height:int, palette:list[int]=[0, 0x4a69, 0x7bef, 0xFFFF]):
+    DEFAULT_PALETTE = [0, 0x4a69, 0x7bef, 0xFFFF]
+    def __init__(self, raw_data:memoryview, width:int, height:int, palette:list[int]=DEFAULT_PALETTE):
         """ImageStream for displaying a two bit RLE Image 
 
         :param raw_data: Raw Data of the image
@@ -854,10 +856,69 @@ class WaspRle2ImageStream():
 
 
 
+class AutoFormatImageStream():
+    """Base Protocol class for ImageStreams
+    :ivar width:
+    :ivar height:
+    """
+
+    _CONTENT_MODE_MAP = {
+        'rle1': WaspRle1ImageStream,
+        'rle2': WaspRle2ImageStream
+    }
+
+    # Reset Stream, or restart it
+    def __init__(self):
+        self.width = None
+        self.height = None
+        self._raw = None
+        self._mode = None
+        self._instream = {
+            'rle1': None,
+            'rle2': None
+        }
+
+    def set_auto_content(self, raw_data):
+        if len(raw_data) == 3:
+            mode = 'rle1'
+            raw, width, height = raw_data
+        else:
+            mode = 'rle2'
+            raw = raw_data[3:]
+            width = raw_data[1]
+            height = raw_data[2]
+        if self._instream[mode] is None:
+            self._instream[mode] = self._CONTENT_MODE_MAP[mode](raw, width, height)
+        else:
+            self._instream[mode]._setup(raw, width, height)
+            i = 0
+            for c in self._CONTENT_MODE_MAP[mode].DEFAULT_PALETTE:
+                self._instream[mode]._set_color(i, c)
+                i += 1
+        self.width = self._instream[mode].width
+        self.height = self._instream[mode].height
+        self._mode = mode
+        self._raw = raw
+
+
+    def _set_color(self, n:int, color:int):
+        self._instream[self._mode]._set_color(n, color)
+
+    def reset(self):
+        self._instream[self._mode].reset()
+
+    def read_pixels(self, read:bool, buf:memoryview, n:int, offset:int) -> int:
+        return self._instream[self._mode].read_pixels(read, buf, n, offset)
+    def get_remaining(self) -> int:
+        return self._instream[self._mode].get_remaining()
+    def info(self) -> str:
+        return self._instream[self._mode].info()
+
+
 
 def create_wasp_image_stream(raw_data):
     if len(raw_data) == 3:
-        return WaspRle1ImageStream(raw_data[0], raw_data[1], raw_data[2],)
+        return WaspRle1ImageStream(raw_data[0], raw_data[1], raw_data[2])
     else:
         return WaspRle2ImageStream(raw_data[3:], raw_data[1], raw_data[2])
 
@@ -892,17 +953,18 @@ class WglAppInfo():
         if self._current_screen < 0:
             return None         # type: ignore[return-value]
         return self.screens[self._current_screen]
+    @current_screen.setter
+    def current_screen(self, screen:'Screen'):
+        if self._current_screen < 0:
+            raise Exception("Cant set current screen, if AppInfo is not initialized yet")
+        self._current_screen = self.screens.index(screen)
     def switch_screen(self, new_screen:'Screen', direction:int=-1):
         cs = self.current_screen
         if cs is None:
             raise Exception("Cant switch screen if not active")
         self.current_screen = new_screen
         self._wgl._set_screen(cs, new_screen, direction=direction)
-    @current_screen.setter
-    def current_screen(self, screen:'Screen'):
-        if self._current_screen < 0:
-            raise Exception("Cant set current screen, if AppInfo is not initialized yet")
-        self._current_screen = self.screens.index(screen)
+        self._wgl.redraw_widgets = False
     def init(self, screens:list['Screen'], current_screen:int=0):
         if len(screens) <= 0:
             raise Exception("At least one screen must be given")
@@ -919,9 +981,7 @@ class WglAppInfo():
 
 _SC_WIDTH = const(0)            # Width of Screen
 _SC_HEIGHT = const(1)           # Height of Screen
-_SC_THEIGHT = const(2)          # Height of screen in Components
-# Horizontal and Vertical Offset to usable screen inside of real screen
-_SC_MAX_AHEAD = const(3)
+_SC_MAX_AHEAD = const(2)
 
 
 UPDATE_GROUPS_ALL = const(0xFFFFFFF)
@@ -964,31 +1024,36 @@ class Screen():
         i = self._var_lookup[key]
         return self._var_array[i+1]
 
-    def set_var(self, key:str, value):
+    def set_var(self, key:str, value, changed:bool=False):
         i = self._var_lookup[key]
         update_index = self._var_array[i+0]
         current_value = self._var_array[i+1]
-        if current_value != value:
+        if changed or current_value != value:
             self._var_array[i+1] = value
             self._update_info |= (1<<update_index)
 
     def draw(self, full:bool=False):
         wgl = self._wgl
 
+
         bgcolor = self.bgcolor
         if full:
             draw_info = (UPDATE_GROUPS_ALL, -1, 999)
+            wgl.redraw_widgets = True
         else:
             draw_info = (self._update_info, -1, 999)
+            wgl.redraw_widgets = False
 
         wgl._set_screen_context(bgcolor, self._font)
 
         df = self._draw_function
         df(self, wgl, draw_info)
         self._update_info = 0
+        wgl.redraw_widgets = False
 
-    def draw_scroll(self, scroll_direction:int):
+    def _draw_scroll(self, scroll_direction:int):
         wgl = self._wgl
+        wgl.redraw_widgets = True
         fill = wgl._fill_uw
         sleep_ms = time.sleep_ms            # type: ignore[attr-defined]
         ticks_ms = time.ticks_ms            # type: ignore[attr-defined]
@@ -1059,7 +1124,14 @@ class Screen():
             else:
                 sleep_ms(1)
 
-        self.draw(full=True)
+        #wgl.redraw_widgets = False
+        #self.draw(full=True)
+        wgl.redraw_widgets = False
+
+    def _clear_screen(self, color):
+        wgl = self._wgl
+        wgl._fill_uw(color, 0, 0, self._screen_info[_SC_WIDTH], self._screen_info[_SC_HEIGHT])
+
 
 
 
@@ -1087,6 +1159,8 @@ class WatchGraphics():
         self._font2:WaspFontStream = WaspFontStream(fonts.sans24)
 
         self.bgcolor:int = _DEFAULT_BGCOLOR
+
+        self.redraw_widgets = False
 
         self._screen = None
 
@@ -1141,6 +1215,7 @@ class WatchGraphics():
         self.bgcolor = bgcolor
 
     def _set_screen_context(self, bgcolor:int, font):
+        self.redraw_widgets = False
         self.set_font(font)
         self._set_bgcolor(bgcolor)
         self._set_window(0, 0, self._display_width, self._display_height, 0)
@@ -1161,9 +1236,10 @@ class WatchGraphics():
                 cs._clear_screen(s.bgcolor)
             self._screen = s
         if direction != DIRECTION_UP and direction != DIRECTION_DOWN:
-            s._draw_full()
+            s.draw(full=True)
         else:
             s._draw_scroll(direction)
+        self.redraw_widgets = False
 
 
 
@@ -1541,7 +1617,7 @@ class WatchGraphics():
         font_height = wfs._font_height
 
         for c in s:
-            wgs._set_ch(c)
+            wfs._set_ch(c)
             cw:int = int(wfs.width)
             ch:int = int(wfs.height)
             if x+cw <= 0:
