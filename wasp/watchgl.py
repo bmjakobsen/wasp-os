@@ -9,12 +9,12 @@ import builtins
 
 import time
 try:
-    from micropython import const       # type: ignore[import-not-found]
+    from micropython import const       # type: ignore[import-not-found,attr-defined]
     import micropython                  # type: ignore[import-not-found]
 except ImportError:
     print("Using Micropython Faker Library")
     from _micropython_faker import const
-    import _micropython_faker as micropython
+    import _micropython_faker as micropython            # type: ignore[no-redef]
     ptr8 = memoryview
     ptr16 = memoryview
     ptr32 = memoryview
@@ -682,7 +682,7 @@ class WaspRle1ImageStream():
 
 
 
-@micropython.viper
+@micropython.viper                      # type: ignore[attr-defined]
 def _clut8_rgb565(i: int) -> int:
     if i < 216:
         rgb565  = (( i  % 6) * 0x33) >> 3
@@ -781,7 +781,7 @@ class WaspRle2ImageStream():
         #index
         self._extra_state[_R2IS_INDEX] = -1+ARROFF
 
-    @micropython.viper
+    @micropython.viper          # type: ignore[attr-defined]
     def read_pixels(self, read:bool, buf, n:int, offset:int) -> int:
         state:ptr32 = ptr32(self._extra_state)
         buf2:ptr8 = ptr8(buf)
@@ -977,9 +977,9 @@ class Screen():
 
         bgcolor = self.bgcolor
         if full:
-            draw_info = (UPDATE_GROUPS_ALL, -1, -1)
+            draw_info = (UPDATE_GROUPS_ALL, -1, 999)
         else:
-            draw_info = (self._update_info, -1, -1)
+            draw_info = (self._update_info, -1, 999)
 
         wgl._set_screen_context(bgcolor, self._font)
 
@@ -1068,6 +1068,13 @@ _WGWI_HEIGHT = const(1)
 _WGWI_XPOS = const(2)
 _WGWI_YPOS = const(3)
 _WGWI_YSHIFT = const(4)
+
+_WGL_BLIT_NOT_SKIPPED = const(0)
+_WGL_BLIT_SKIPPED = const(0)
+_WGL_BLIT_SKIPPED_XR = const(1)
+_WGL_BLIT_SKIPPED_Y_OFF = const(2)
+_WGL_BLIT_SKIPPED_YU = const(2)
+_WGL_BLIT_SKIPPED_YD = const(3)
 
 _DEFAULT_BGCOLOR = const(0)
 
@@ -1208,8 +1215,8 @@ class WatchGraphics():
             reduce_by_lines += stripped_lines
             height -= stripped_lines
 
-        if height <= 0:
-            return True
+        if height <= 0:                 # return either _WGL_BLIT_SKIPPED_YU or _WGL_BLIT_SKIPPED_YD only needed for draw_text
+            return _WGL_BLIT_SKIPPED_Y_OFF+int(skip_lines <= 0)
         skip_cols:int = 0
         if x < 0:
             skip_cols -= x
@@ -1221,7 +1228,7 @@ class WatchGraphics():
             reduce_by_cols += stripped_cols
             width -= stripped_cols
         if width <= 0:
-            return False
+            return int(skip_cols <= 0)          # Return either _WGL_BLIT_SKIPPED or _WGL_BLIT_SKIPPED_XR only relevant for drawing text
 
         if reduce_by_lines > 0:
             croppedy:VerticalCropStream = self._crop_v_stream
@@ -1235,6 +1242,7 @@ class WatchGraphics():
 
         self.display.wgl_blit(image, window_info[_WGWI_XPOS]+x, window_info[_WGWI_YPOS]-ARROFF+y)
         #image.reset()
+        return _WGL_BLIT_NOT_SKIPPED
 
 
     # Fill on screen but ignore current window
@@ -1284,7 +1292,7 @@ class WatchGraphics():
     # Other Lines are drawn using bresenhams line algorithm
     # with the difference that multiple oeprations to draw a single pixel are coalesced
     # into bigger operations to draw orthogonal lines.
-    @micropython.viper
+    @micropython.viper                  # type: ignore[attr-defined]
     def draw_line(self, color:int, width:int, x0:int, y0:int, x1:int, y1:int):
         """Draw a line between to points, with a given width and color
 
@@ -1337,12 +1345,17 @@ class WatchGraphics():
 
 
         window_info:ptr32 = ptr32(self._window_info)
+        window_width:int = window_info[_WGWI_WIDTH]
+        window_height:int = window_info[_WGWI_HEIGHT]
 
         # Shift content by y, do not shift before, else it would be shifted twice, when using simple fill operations
         yshift:int = window_info[_WGWI_YSHIFT]-ARROFF
         y0 += yshift
         y1 += yshift
 
+        # Check if line is completely above or below the window, helpful for optimizing scrolling
+        if (y0+width < 0 and y1+width < 0) or (y0-width >= window_height and y1-width >= window_height):
+            return
 
 
         # Direction to move, x0-x1 cant be zero, same for y0-y1
@@ -1360,8 +1373,6 @@ class WatchGraphics():
         fill_h:int = -1
 
         error:int = dx_x2+dy_x2
-        window_width:int = window_info[_WGWI_WIDTH]
-        window_height:int = window_info[_WGWI_HEIGHT]
 
         wgl_fill = self.display.wgl_fill
 
@@ -1522,11 +1533,6 @@ class WatchGraphics():
 
         font_height = font._font_height
 
-        if x >= window_width:
-            return
-        if y+font_height <= 0:
-            return
-
         for c in s:
             font._set_ch(c)
             cw:int = int(font.width)
@@ -1534,9 +1540,8 @@ class WatchGraphics():
             if x+cw <= 0:
                 x += cw
                 continue
-            if x >= window_width:
-                break
-            if self._blit(font, x, y):
+            r = self._blit(font, x, y)
+            if r == _WGL_BLIT_SKIPPED_XR or r == _WGL_BLIT_SKIPPED_YD or (r == _WGL_BLIT_SKIPPED_YU and ch >= font_height):
                 break
             x += cw
 
