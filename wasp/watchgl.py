@@ -1084,6 +1084,7 @@ class WatchGraphics():
         self.display:DisplayProtocol = display
 
         self._font:WaspFontStream = WaspFontStream(fonts.sans24)
+        self._font2:WaspFontStream = WaspFontStream(fonts.sans24)
 
         self.bgcolor:int = _DEFAULT_BGCOLOR
 
@@ -1485,7 +1486,7 @@ class WatchGraphics():
 
     # Get bounding box of a string drawn on the screen
     #@micropython.native
-    def string_bounding_box(self, s:str) -> tuple[int, int]:
+    def string_bounding_box(self, s:str, font=None) -> tuple[int, int]:
         """Calculate the bounding box of a string
 
         :param s: The String
@@ -1493,13 +1494,16 @@ class WatchGraphics():
         :return: width and height of the bounding box, as a tuple
         :rtype: tuple[int, int]
         """
-        font:WaspFontStream = self._font
-        height:int = font._font_height
+        wfs:WaspFontStream = self._font
+        if font:
+            wfs = self._font2
+            wfs._set_font(font)
+        height:int = wfs._font_height
         width:int = 0
         for c in s:
-            font._set_ch(c)
-            cw2:int = int(font.width)
-            ch2:int = int(font.height)
+            wfs._set_ch(c)
+            cw2:int = int(wfs.width)
+            ch2:int = int(wfs.height)
             width += cw2
             if ch2 > height:
                 height = ch2
@@ -1510,7 +1514,7 @@ class WatchGraphics():
     # Draw string to the screen at position, sadly cant be viper as it doesnt
     #Temporarily Non-Native
     #@micropython.native
-    def draw_string(self, color:int, bgcolor:int, s:str, x:int, y:int):
+    def draw_string(self, color:int, bgcolor:int, s:str, x:int, y:int, font=None):
         """Draw a String with a given FG and BG Color,
 
         :param color: Foreground Color
@@ -1526,26 +1530,29 @@ class WatchGraphics():
         """
         window_width:int = self.width
         window_height:int = self.height
-        font:WaspFontStream = self._font
+        wfs:WaspFontStream = self._font
+        if font:
+            wfs = self._font2
+            wfs._set_font(font)
         if bgcolor < 0:
             bgcolor = self.bgcolor
-        font._set_color(color, bgcolor)
+        wfs._set_color(color, bgcolor)
 
-        font_height = font._font_height
+        font_height = wfs._font_height
 
         for c in s:
-            font._set_ch(c)
-            cw:int = int(font.width)
-            ch:int = int(font.height)
+            wgs._set_ch(c)
+            cw:int = int(wfs.width)
+            ch:int = int(wfs.height)
             if x+cw <= 0:
                 x += cw
                 continue
-            r = self._blit(font, x, y)
+            r = self._blit(wfs, x, y)
             if r == _WGL_BLIT_SKIPPED_XR or r == _WGL_BLIT_SKIPPED_YD or (r == _WGL_BLIT_SKIPPED_YU and ch >= font_height):
                 break
             x += cw
 
-    def draw_string_a(self, color:int, bgcolor:int, s:str, x:int, y:int, width:int=0, align:int=ALIGNMENT_CENTER):
+    def draw_string_a(self, color:int, bgcolor:int, s:str, x:int, y:int, width:int=0, align:int=ALIGNMENT_CENTER, font=None):
         """Draw a String aligned inside of a box. And fill the rest of the box
 
         :param color: Foreground Color
@@ -1563,9 +1570,9 @@ class WatchGraphics():
         :param align: Alignment of the Text inside of the box, can be ALIGNMENT_CENTER, ALIGNMENT_LEFT, ALIGNMENT_RIGHT
         :type align: int
         """
-        (rw, rh) = self.string_bounding_box(s)
+        (rw, rh) = self.string_bounding_box(s, font=font)
         if rw >= width:
-            self.draw_string(color, bgcolor, s, x, y)
+            self.draw_string(color, bgcolor, s, x, y, font=font)
             return
         lpad:int = 0
         rpad:int = 0
@@ -1583,7 +1590,7 @@ class WatchGraphics():
             raise Exception("Shouldnt Happen")
         if lpad > 0:
             self.fill(bgcolor, x, y, lpad, rh)
-        self.draw_string(color, bgcolor, s, x+lpad, y)
+        self.draw_string(color, bgcolor, s, x+lpad, y, font=font)
         if rpad > 0:
             self.fill(bgcolor, x+lpad+rw, y, rpad, rh)
 

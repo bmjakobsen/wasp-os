@@ -34,15 +34,14 @@ class BatteryMeter():
 
     def draw(self):
         """Draw from meter (from scratch)."""
-        self.level = -2
-        self.update()
+        self.update(_redraw=True)
 
-    def update(self):
+    def update(self, _redraw=False):
         """Update the meter.
 
         The update is lazy and won't redraw unless the level has changed.
         """
-        if _wgl.redraw_widgets:
+        if _redraw or _wgl.redraw_widgets:
             self.level = -2
 
         nlevel = -2
@@ -96,10 +95,9 @@ class Clock():
         The container is required to clear the canvas prior to the redraw
         and the clock is only drawn if it is enabled.
         """
-        self.on_screen = None
-        self.update()
+        self.update(_redraw=True)
 
-    def update(self):
+    def update(self, _redraw=False):
         """Update the clock widget if needed.
 
         This is a lazy update that only redraws if the time has changes
@@ -108,7 +106,7 @@ class Clock():
         :returns: An time tuple if the time has changed since the last call,
                   None otherwise.
         """
-        if _wgl.redraw_widgets:
+        if _redraw or _wgl.redraw_widgets:
             self.on_screen = None
 
         now = wasp.watch.rtc.get_localtime()
@@ -123,20 +121,15 @@ class Clock():
         return now
 
     def _draw_function(wgl, now):
-        r = wgl.get_font()
-        try:
-            wgl.set_font(fonts.sans28)
-            t1 = '{:02}:{:02}'.format(now[3], now[4])
-            wgl.draw_string(wasp.system.theme('status-clock'), 0, t1, 52, 4, width=138, align=ALIGNMENT_CENTER)
-        finally:
-            wgl.set_font(r)
+        t1 = '{:02}:{:02}'.format(now[3], now[4])
+        wgl.draw_string_a(wasp.system.theme('status-clock'), 0, t1, 52, 4, width=138, align=watchgl.ALIGNMENT_CENTER, font=fonts.sans28)
 
 class NotificationBar():
     """Show BT status and if there are pending notifications."""
     def __init__(self, x:int=0, y:int=0):
         self.x = x
         self.y = y
-        self.state = (None, None)
+        self._state = (None, None)
         self._icon_ble = watchgl.create_wasp_image_stream(icons.blestatus)
         self._icon_notif = watchgl.create_wasp_image_stream(icons.notification)
 
@@ -146,28 +139,24 @@ class NotificationBar():
         For this simple widget :py:meth:`~.draw` is simply a synonym for
         :py:meth:`~.update` because we unconditionally update from scratch.
         """
-        self.state = (None, None)
-        self.update()
+        self.update(_redraw=True)
 
-    def update(self):
+    def update(self, _redraw=False):
         """Update the widget.
 
         This widget does not implement lazy redraw internally since this
         can often be implemented (with less state) by the container.
         """
-        if _wgl.redraw_widgets:
-            self.state = (None, None)
+        if _redraw or _wgl.redraw_widgets:
+            self._state = (None, None)
 
 
         draw = watch.drawable
-
-        self._draw_function(_wgl)
-
         new_state = (bool(wasp.watch.connected()), bool(wasp.system.notifications))
 
-        if new_state == self.state:
+        if new_state == self._state:
             return
-        self.state = new_state
+        self._state = new_state
         self._draw_function(_wgl)
 
 
@@ -178,7 +167,7 @@ class NotificationBar():
         x = self.x
         y = self.y
 
-        connected, notifications = self.state
+        connected, notifications = self._state
         if connected:
             wgl.blit(self._icon_ble, x, y)
             if notifications:
@@ -242,7 +231,7 @@ class ScrollIndicator():
         self.y = y
         self.up = True
         self.down = True
-        self.state = (None, None)
+        self._state = (None, None)
         self._icon_up = watchgl.create_wasp_image_stream(icons.up_arrow)
         self._icon_down = watchgl.create_wasp_image_stream(icons.down_arrow)
 
@@ -252,18 +241,17 @@ class ScrollIndicator():
         For this simple widget :py:meth:`~.draw` is simply a synonym for
         :py:meth:`~.update`.
         """
-        self.state = (None, None)
-        self.update()
+        self.update(_redraw=True)
 
-    def update(self):
-        if _wgl.redraw_widgets:
-            self.state = (None, None)
+    def update(self, _redraw=False):
+        if _redraw or _wgl.redraw_widgets:
+            self._state = (None, None)
 
         """Update from scrolling indicator."""
         new_state = (self.up, self.down)
-        if new_state == self.state:
+        if new_state == self._state:
             return
-        self.state = new_state
+        self._state = new_state
         self._draw_function(_wgl)
 
     def _draw_function(self, wgl):
@@ -278,44 +266,56 @@ class ScrollIndicator():
 
 class Button():
     """A button with a text label."""
-    def __init__(self, x, y, w, h, label)(None, None):
-        super().__init__(x, y, w, h, self._draw_function, font=fonts.sans24, state={'toggle': state}, flags=flags)
+    def __init__(self, x, y, w, h, label):
         self._im = (x, y, w, h, label)
-        self._label = label
+        self._colors = (None, None, None)
+        self._rcolors = (None, None, None)
 
     def draw(self):
         """Draw the button."""
-        self.dirty = True
-        self.update()
-
-    def update(self, toggle=None):
-        draw = wasp.watch.drawable
-        im = self._im
-
-        if toggle is not None:
-            self.set_var('toggle', toggle)
-
-        if not self.bound and self.dirty:
-            self.direct_draw(_wgl)
-            self.dirty = False
-
-    def _draw_function(self, com, state, wgl):
-        label = self._label
-
-        _, _, w, h, _ = self._im
-        if state['toggle']:
-            bg = wasp.watch.drawable.darken(wasp.system.theme('ui'))
-        else:
-            bg = wasp.watch.drawable.darken(wasp.system.theme('mid'))
+        bg = wasp.watch.drawable.darken(wasp.system.theme('ui'))
         frame = wasp.system.theme('mid')
         txt = wasp.system.theme('bright')
+        self.set_colors('ui', 'mid', 'bright')
+        self.update(_redraw=True)
+
+    def set_colors(self, bg, frame, txt):
+        self._colors = (bg, frame, txt)
+
+    def update(self, _redraw=False):
+        draw = wasp.watch.drawable
+        im = self._im
+        if _redraw or _wgl.redraw_widgets:
+            self._rcolors = (None, None, None)
+
+        bg, frame, txt = self._colors
+        if type(bg) == str:
+            bg = wasp.system.theme(bg)
+        if type(frame) == str:
+            frame = wasp.system.theme(frame)
+        if type(txt) == str:
+            txt = wasp.system.theme(frame)
+        new_colors = (bg, frame, txt)
+
+        if new_colors == self._rcolors:
+            return
+        self._rcolors = new_colors
+        self._state = new_state
+
+        self._draw_function(_wgl, bg, frame, text)
+
+    def _draw_function(self, wgl, bg, frame, txt):
+        label = self._label
+
+        x, y, w, h, label = self._im
+        wgl.fill(bg, x, y, w, h)
 
         wgl.fill(bg, 0, 0, w, h)
-        wgl.draw_string_a(txt, bg, label, 2, h//2-12, width=w-4, align=watchgl.ALIGNMENT_CENTER)
-        wgl.fill(frame, 0, 0, w, 2)
-        wgl.fill(frame, 0, h-2, w, 2)
-        wgl.fill(frame, 0, 2, 2, h-4)
-        wgl.fill(frame, w-2, 2, 2, h-4)
+        wgl.draw_string_a(txt, bg, label, 2, h//2-12, width=w-4, align=watchgl.ALIGNMENT_CENTER, font=fonts.sans24)
+        wgl.fill(frame, x, y, w, 2)
+        wgl.fill(frame, x, y+h-2, w, 2)
+        wgl.fill(frame, x, y+2, 2, h-4)
+        wgl.fill(frame, x+w-2, y+2, 2, h-4)
 
     def touch(self, event):
         """Handle touch events."""
@@ -336,128 +336,99 @@ class Button():
 
 class ToggleButton(Button):
     """A button with a text label that can be toggled on and off."""
-    def __init__(self, x, y, w, h, label, flags:int=watchgl.COMFLAG_DEFAULT):
-        super().__init__(x, y, w, h, label, state=False, flags=flags)
+    def __init__(self, x, y, w, h, label):
+        super().__init__(x, y, w, h, label)
+        self.state = False
 
-    @property
-    def state(self):
-        self.get_var('toggle')
-    @state.setter
-    def state(self, v):
-        self.set_var('toggle', v)
+    def draw(self):
+        draw = wasp.watch.drawable
+        self._set_colors(('ui' if self.state else 'mid'), 'mid', 'bright')
+        self.update()
+
 
     def touch(self, event):
         """Handle touch events."""
         if super().touch(event):
-            self.set_var('toggle', (not self._state['toggle']))
+            self.state = not self.state
             self.draw()
             return True
         else:
             return False
 
-class Checkbox(watchgl.Component):
+class Checkbox():
     """A simple (labelled) checkbox."""
-    def __init__(self, x, y, label=None, width:int=None, flags=watchgl.COMFLAG_DEFAULT):
-        if width is not None and width < 32:
-            raise Exception("Width must be 32 or greater")
-        if width is not None and label is None:
-            x = (x+width)-32-4
-            width = 32
-        elif width is None and label is None:
-            width = 32
-        elif width is None:
-            width = 240-x
-        else:
-            pass
-
-        super().__init__(x, y, width, 32, self._draw_function, font=fonts.sans24, state={'toggle': False}, flags=flags)
-
-        self._label = label
-        box_x = 0
-        if label is not None:
-            box_x = width-32-4
-        self._box_x = box_x
-        self._im = (x, y, label)
-        self._icon_on = watchgl.create_wasp_image_stream(icons.checkbox)
-        self._icon_off = watchgl.create_wasp_image_stream(icons.checkbox)
-
+    def __init__(self, x, y, label=None):
+        tx = x
+        if label:
+            x = 239 - 32 - 4
+        self._im = (x, tx, y, label)
+        self.state = False
+        self._state = False
+        self._icon_cb = watchgl.create_wasp_image_stream(icons.checkbox)
     @property
     def label(self):
-        return self._label
-    @property
-    def state(self):
-        return self.get_var('toggle')
-    @state.setter
-    def state(self, v):
-        self.set_var('toggle', v)
+        return self._im[2]
 
     def draw(self):
         """Draw the checkbox and label."""
-        self.dirty = True
-        self.update()
+        self.update(_redraw=True)
 
-    def update(self):
+    def update(self, _redraw=False):
         """Draw the checkbox."""
-        if not self.bound and self.dirty:
-            self.direct_draw(_wgl)
-            self.dirty = False
+        if _redraw or _wgl.redraw_widgets:
+            self._state = None
+        if self.state == self._state:
+            return
+        self._state = self.state
+        self._draw_function(_wgl, self.state)
 
 
-    def _draw_function(self, com, state, wgl):
-        color1 = wasp.system.theme('ui')
-        color2 = wasp.watch.drawable.lighten(color1, wasp.system.theme('contrast'))
-        self._icon_on._set_color(1, color1)
-        self._icon_on._set_color(2, color2)
-        self._icon_on._set_color(3, color2)
-        self._icon_off._set_color(1, 0)
-        self._icon_off._set_color(2, 0)
-        self._icon_off._set_color(3, wasp.system.theme('mid'))
-        label = self._label
-        box_x = self._box_x
-        if label is not None:
-            wgl.draw_string_a(wasp.system.theme('bright'), 0, label, 0, 4, width=0, align=watchgl.ALIGNMENT_LEFT)
-        if state['toggle']:
-            wgl.blit(self._icon_on, box_x, 0)
+    def _draw_function(self, wgl, state):
+        if state:
+            color1 = wasp.system.theme('ui')
+            color2 = wasp.watch.drawable.lighten(color1, wasp.system.theme('contrast'))
+            fg = color2
         else:
-            wgl.blit(self._icon_off, box_x, 0)
+            color1 = 0
+            color2 = 0
+            fg = wasp.system.theme('mid')
+        ix, tx, iy, label = self._im
+        cbox = self._icon_cb
+        cbox._set_color(1, color1)
+        cbox._set_color(2, color2)
+        cbox._set_color(3, fg)
+
+        if label:
+            wgl.draw_string(wasp.system.theme('bright'), 0, label, tx, iy+6, font=fonts.sans24)
+
+        wgl.blit(cbox, ix, iy)
 
     def touch(self, event):
         """Handle touch events."""
         x = event[1]
         y = event[2]
-        im = self._im
-        if (self.label or im[0] <= x < im[0]+40) and im[1] <= y < im[1]+40:
-            self.set_var('toggle', not (self._state['toggle']))
+        ix, iy, _ = self._im
+        if (self.label or ix <= x < ix+40) and iy <= y < iy+40:
+            self.state = not self.state
             self.update()
             return True
         return False
 
-class GfxButton(watchgl.Component):
+class GfxButton():
     """A button with a graphical icon."""
-    def __init__(self, x, y, gfx, flags=watchgl.COMFLAG_DEFAULT):
-        _gfx = watchgl.create_wasp_image_stream(gfx)
-        width, height = (_gfx.width, _gfx.height)
-        if width % watchgl.TILE_SIZE != 0:
-            width += watchgl.TILE_SIZE - (width % watchgl.TILE_SIZE)
-        if height % watchgl.TILE_SIZE != 0:
-            height += watchgl.TILE_SIZE - (height % watchgl.TILE_SIZE)
-
-
-        super().__init__(x, y, width, height, self._draw_function, flags=flags)
+    def __init__(self, x, y, gfx):
         self._im = (x, y)
         self.gfx = gfx
-        self._gfx = _gfx
+        self._gfx = watchgl.create_wasp_image_stream(gfx)
 
     def draw(self):
         """Draw the button."""
-        im = self._im
-
-        if not self.bound:
-            self.direct_draw(_wgl)
-            self.dirty = False
-
-    def _draw_function(self, com, state, wgl):
-        wgl.blit(self._gfx, 0, 0)
+        self.update(_redraw=True)
+    def update(self, _redraw=False):
+        if not _redraw and not _wgl.redraw_widgets:
+            return
+        x, y = self._im
+        wgl.blit(self._gfx, x, y)
 
     def touch(self, event):
         x = event[1]
@@ -485,43 +456,51 @@ _SLIDER_TRACK_HEIGHT = const(8)
 _SLIDER_TRACK_Y1 = const(_SLIDER_KNOB_RADIUS - (_SLIDER_TRACK_HEIGHT // 2))
 _SLIDER_TRACK_Y2 = const(_SLIDER_TRACK_Y1 + _SLIDER_TRACK_HEIGHT)
 
-class Slider(watchgl.Component):
+class Slider():
     """A slider to select values."""
-    def __init__(self, steps, x=10, y=90, color=None, width=220, height=40, flags=watchgl.COMFLAG_DEFAULT):
-        super().__init__(x, y, width, height, self._draw_function, state={'value': 0 }, flags=flags)
+    def __init__(self, steps, x=10, y=90, color=None):
+        self.value = 0
+        self._value = None
+
         self._steps = steps
         self._stepsize = _SLIDER_TRACK / (steps-1)
+        self._x = x
+        self._y = y
         self._color = color
         self._lowlight = None
         self._icon_knob = watchgl.create_wasp_image_stream(icons.knob)
 
-    @property
-    def value(self):
-        return self.get_var('value')
-    @value.setter
-    def value(self, v):
-        self.set_var('value', v)
+    def draw(self):
+        self.update(_redraw=True)
 
-    def _draw_function(self, com, state, wgl):
+    def update(self, _redraw=False):
+        if _redraw or _wgl.redraw_widgets:
+            self._value = None
+        if self.value == self._value:
+            return
+        self._value = self.value
+        self._draw_function(_wgl, self.value)
+
+    def _draw_function(self, wgl, value):
+        x = self._x
+        y = self._y
         if self._color is None:
             self._color = wasp.system.theme('ui')
-        self._icon_knob._set_color(3, self._color)
+        color = self._color
         if self._lowlight is None:
             self._lowlight = watch.drawable.lighten(self._color, wasp.system.theme('contrast'))
+        light = self._lowlight
 
-        knob_x = (_SLIDER_TRACK * self.value) // (self._steps-1)
-        wgl.fill(0, 0, 0, self.width, self.height)
-        wgl.fill(self._color, _SLIDER_KNOB_OFFSET, _SLIDER_TRACK_Y1, self.width-(_SLIDER_KNOB_OFFSET*2), _SLIDER_TRACK_HEIGHT)
-        wgl.blit(self._icon_knob, knob_x, 0)
+        knob_x = x + (_SLIDER_TRACK * value) // (self._steps-1)
+        w1 = x - knob_x
+        wgl.fill(0, x, y, _SLIDER_WIDTH, _SLIDER_TRACK_Y1)
+        wgl.fill(self._color, x+_SLIDER_KNOB_RADIUS, y+_SLIDER_TRACK_Y1, w1-SLIDER_KNOB_RADIUS, _SLIDER_TRACK_HEIGHT)
+        wgl.fill(self._light, knob_x, y+_SLIDER_TRACK_Y1, (_SLIDER_WIDTH-w1)-SLIDER_KNOB_RADIUS, _SLIDER_TRACK_HEIGHT)
+        wgl.fill(0, x, y+_SLIDER_TRACK_Y2, _SLIDER_WIDTH, _SLIDER_TRACK_Y1)
 
-    def draw(self):
-        if not self.bound:
-            self.direct_draw(_wgl)
-            dirty = False
-
-    def update(self):
-        if not self.bound and self.dirty:
-            self.draw()
+        icon_knob = self._icon_knob
+        icon_knob._set_color(3, self._color)
+        wgl.blit(icon_knob, knob_x, y)
 
     def touch(self, event):
         tx = event[1]
@@ -535,52 +514,52 @@ class Slider(watchgl.Component):
         self.value = v
         return changed
 
-class Spinner(watchgl.Component):
+class Spinner():
     """A simple Spinner widget.
 
     In order to have large enough hit boxes the spinner is a fairly large
     widget and requires 60x120 px.
     """
     # mn is Miniumum, mx is Maximum
-    def __init__(self, x, y, mn, mx, field=1, incr=1, flags=watchgl.COMFLAG_DEFAULT):
-        super().__init__(x, y, 64, 128, self._draw_function, font=fonts.sans28, state={'value': mn }, flags=flags)
+    def __init__(self, x, y, mn, mx, field=1, incr=1):
         self._im = bytes((x, y, mn, mx, field, incr))
+        self.value = mn
+        self._value = None
         self._icon_up = watchgl.create_wasp_image_stream(icons.up_arrow)
         self._icon_down = watchgl.create_wasp_image_stream(icons.down_arrow)
-
-    @property
-    def value(self):
-        return self.get_var('value')
-    @value.setter
-    def value(self, v):
-        self.set_var('value', v)
-
-
-    def _draw_function(self, com, state, wgl):
-        im = self._im
-        fg = wasp.watch.drawable.lighten(wasp.system.theme('ui'), wasp.system.theme('contrast'))
-        self._icon_up._set_color(3, fg)
-        self._icon_down._set_color(3, fg)
-        wgl.blit(self._icon_up, 32-8, 24)
-        wgl.blit(self._icon_down, 32-8, 24+100-20-9)
-
-        s = str(state['value'])
-        if len(s) < im[4]:
-            s = '0' * (im[4] - len(s)) + s
-        wgl.draw_string_a(wasp.system.theme('bright'), 2, s, 0, 24+40-14, width=60, align=watchgl.ALIGNMENT_CENTER)
 
 
     def draw(self):
         """Draw the spinner"""
-        self.dirty = True
-        self.update()
+        self.update(_redraw=True)
 
 
-    def update(self):
+    def update(self, _redraw=False):
         """Update the spinner value."""
-        if not self.bound and self.dirty:
-            self.direct_draw(_wgl)
-            self.dirty = False
+        if _redraw or _wgl.redraw_widgets:
+            self._value = None
+        if self.value == self._value:
+            return
+        self.value = self._value
+        self._draw_function(self, _wgl, self.value)
+
+    def _draw_function(self, wgl, value):
+        x, y, mn, mx, field, _ = self._im
+
+
+        fg = wasp.watch.drawable.lighten(wasp.system.theme('ui'), wasp.system.theme('contrast'))
+        self._icon_up._set_color(3, fg)
+        self._icon_down._set_color(3, fg)
+        wgl.blit(self._icon_up, x+30-8, y+20)
+        wgl.blit(self._icon_down, x+30-8, y+120-20-9)
+
+        s = str(value)
+        ls = len(s)
+        if ls < field:
+            s = '0' * (field - ls) + s
+        wgl.draw_string_a(wasp.system.theme('bright'), 0, s, x, y+60-14, width=60, align=watchgl.ALIGNMENT_CENTER, font=fonts.sans28)
+
+
 
     def touch(self, event):
         x = event[1]
@@ -626,12 +605,14 @@ class Stopwatch:
         self._last_count = -1
 
     def draw(self):
-        self._last_count = -1
-        self.update()
+        self.update(_redraw=True)
 
-    def update(self):
+    def update(self, redraw=False):
         # Before we do anything else let's make sure count is
         # up to date
+        if _redraw or _wgl.redraw_widgets:
+            self._last_count = -1
+
         if self._started_at:
             uptime = wasp.watch.rtc.get_uptime_ms() // 10
             self.count = uptime - self._started_at
@@ -639,26 +620,23 @@ class Stopwatch:
                 self.reset()
 
         if self._last_count != self.count:
-            centisecs = self.count
-            secs = centisecs // 100
-            centisecs %= 100
-            minutes = secs // 60
-            secs %= 60
-
-            t1 = '{}:{:02}'.format(minutes, secs)
-            t2 = '{:02}'.format(centisecs)
-
-            y = self._y
-            draw = wasp.watch.drawable
-            draw.set_font(fonts.sans36)
-            draw.set_color(draw.lighten(wasp.system.theme('ui'), wasp.system.theme('contrast')))
-            w = fonts.width(fonts.sans36, t1)
-            draw.string(t1, 180-w, y)
-            draw.fill(0, 0, y, 180-w, 36)
-            draw.set_font(fonts.sans24)
-            draw.string(t2, 180, y+18, width=46)
-
+            self._draw_function(_wgl, self.count)
             self._last_count = self.count
+
+    def _draw_function(self, wgl, count):
+        y = self._y
+        centisecs = count
+        secs = centisecs // 100
+        centisecs %= 100
+        minutes = secs // 60
+        secs %= 60
+
+        t1 = '{}:{:02}'.format(minutes, secs)
+        t2 = '{:02}'.format(centisecs)
+
+        color = wasp.watch.drawable.lighten(wasp.system.theme('ui'), wasp.system.theme('contrast'))
+        wgl.draw_string_a(color, 0, t1, 20, y, width=152, align=watchgl.ALIGNMENT_RIGHT, font=fonts.sans36)
+        wgl.draw_string_a(color, 0, t2, 180, y+18, width=46, align=watchgl.ALIGNMENT_CENTER, font=fonts.sans24)
 
 class ConfirmationView:
     """Confirmation widget allowing user confirmation of a setting."""
@@ -668,21 +646,27 @@ class ConfirmationView:
         self.value = False
         self._yes = Button(20, 140, 90, 45, 'Yes')
         self._no = Button(130, 140, 90, 45, 'No')
+        self._message = message
 
     def draw(self, message):
         draw = wasp.watch.drawable
         mute = wasp.watch.display.mute
 
         mute(True)
-        draw.set_color(wasp.system.theme('bright'))
-        draw.set_font(fonts.sans24)
-        draw.fill()
-        draw.string(message, 0, 60)
+        color = wasp.system.theme('bright')
+        wgl.fill(0, 0, 0, 240, 240)
+        wgl.draw_string_a(color, 0, message, 0, 60, width=120, align=watchgl.ALIGNMENT_CENTER, font=fonts.sans24)
         self._yes.draw()
         self._no.draw()
+        self._message = message
         mute(False)
 
         self.active = True
+
+    def update(self, _redraw=False):
+        if _redraw or _wgl.redraw_widgets:
+            self.draw(self._message)
+
 
     def touch(self, event):
         if not self.active:

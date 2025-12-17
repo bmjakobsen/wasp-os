@@ -23,7 +23,7 @@ import watch
 import widgets
 import appregistry
 
-from watchgl import Screen, WatchGraphics, Component
+from watchgl import Screen, WatchGraphics
 
 from apps.system.launcher import LauncherApp
 from apps.system.pager import PagerApp, CrashApp, NotificationApp
