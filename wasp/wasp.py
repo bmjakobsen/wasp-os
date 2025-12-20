@@ -105,7 +105,6 @@ class Manager():
 
     def __init__(self):
         self.app = None
-        self._switch_scroll = (False, -1)
 
         self.bar = widgets.StatusBar()
 
@@ -291,7 +290,6 @@ class Manager():
             watch.display.mute(False)
         else:
             self.app = app
-            self._switch_scroll = (False, -1)
             watch.wgl._set_screen(None, None)
             watch.drawable._wgl = watch.drawable._wgl_bak
             watch.display.mute(True)
@@ -325,7 +323,7 @@ class Manager():
                     i = 0
             else:
                 i = 0
-            self.switch(app_list[i], scroll=direction)
+            self.switch(app_list[i], scroll=EventType.DOWN)
         elif direction == EventType.RIGHT:
             if self.app in app_list:
                 i = app_list.index(self.app) - 1
@@ -333,7 +331,7 @@ class Manager():
                     i = len(app_list)-1
             else:
                 i = 0
-            self.switch(app_list[i], scroll=direction)
+            self.switch(app_list[i], scroll=EventType.DOWN)
         elif direction == EventType.UP:
             self.switch(self.launcher, scroll=direction)
         elif direction == EventType.DOWN:
@@ -349,7 +347,7 @@ class Manager():
 
         elif direction == EventType.HOME or direction == EventType.BACK:
             if self.app != app_list[0]:
-                self.switch(app_list[0], scroll=EventType.UP)
+                self.switch(app_list[0], scroll=EventType.DOWN)
             else:
                 self.sleep()
 

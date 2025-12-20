@@ -86,7 +86,7 @@ class LauncherApp():
         else:
             i -= 1
             if i < 0:
-                wasp.system.switch(wasp.system.quick_ring[0])
+                wasp.system.switch(wasp.system.quick_ring[0], scroll=DIRECTION_DOWN)
                 return
             d = DIRECTION_DOWN
 
@@ -101,7 +101,7 @@ class LauncherApp():
         y = event[2]
         app = page[2 * (y // 120) + (x // 120)]
         if app:
-            wasp.system.switch(app)
+            wasp.system.switch(app, scroll=DIRECTION_UP)
         else:
             wasp.watch.vibrator.pulse()
 
