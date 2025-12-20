@@ -926,10 +926,8 @@ def create_wasp_image_stream(raw_data):
 
 
 class WglAppInfo():
-    def __init__(self, wgl:'WatchGraphics', in_scroll:tuple[bool, int]=(False, -1), out_scroll:tuple[bool, int]=(False, -1)):
+    def __init__(self, wgl:'WatchGraphics'):
         self._wgl:'WatchGraphics' = wgl
-        self._in_scroll:tuple[bool, int] = in_scroll
-        self._out_scroll:tuple[bool, int] = out_scroll
         self.screens:list['Screen'] = []
         self._current_screen:int = -1
     def create_screen(self, bgcolor:int, draw_function, vars:dict, font=fonts.sans24) -> 'Screen':
@@ -1253,17 +1251,10 @@ class WatchGraphics():
 
 
 
-    def create_appinfo(self, in_scroll:tuple[bool, int]=(False, -1), out_scroll:tuple[bool, int]=(False, -1)) -> 'WglAppInfo':
+    def create_appinfo(self) -> 'WglAppInfo':
         """Create a WglAppInfo object.
-
-        :param in_scroll: A Tuple containing the scrolling direction when scrolling into the app, and a boolean that says wether to force this
-        :type in_scroll: tuple[bool, int]
-        :param out_scroll: A Tuple containing the scrolling direction when scrolling out of the app, and a boolean that says wether to force this
-        :type out_scroll: tuple[bool, int]
-        :return: New WglAppInfo Object
-        :rtype: WglAppInfo
         """
-        return WglAppInfo(self, in_scroll=in_scroll, out_scroll=out_scroll)
+        return WglAppInfo(self)
 
     # Bit image to the screen at position, will automatically be cropped if it goes out of bounds
     #@micropython.viper

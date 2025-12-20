@@ -169,7 +169,7 @@ class Manager():
                 gc.collect()
                 free = gc.mem_free()
 
-            self.switch(self.quick_ring[0], no_scroll=True)
+            self.switch(self.quick_ring[0], scroll=-1)
 
     def register_defaults(self):
         """Register the default applications."""
@@ -249,7 +249,7 @@ class Manager():
         """Cached copy of the current vibrator pulse duration in milliseconds"""
         return self._nfylev_ms
 
-    def switch(self, app, no_scroll:bool=False):
+    def switch(self, app, scroll:int=-1):
         """Switch to the requested application.
         """
         if self.app is app:
@@ -279,26 +279,15 @@ class Manager():
 
         if hasattr(app, 'appinfo') and app.appinfo is not None:
             watch.drawable._wgl = None
-            out_scroll_dir = self._switch_scroll
-            scroll_dir = app.appinfo._in_scroll
-            if scroll_dir[0]:
-                scroll_direction = scroll_dir[1]
-            elif scroll_dir[1] >= 0 and not out_scroll_dir[0]:
-                scroll_direction = scroll_dir[1]
-            else:
-                scroll_direction = out_scroll_dir[1]
 
             app.foreground()
             if app.appinfo.current_screen is None:
                 raise Exception("App has not been properly initialized")
             self._current_screen = app.appinfo.current_screen
             self.app = app
-            self._switch_scroll = app.appinfo._out_scroll
-            if cscreen is not None and scroll_direction < 0:
-                cscreen._clear_screen(screen.bgcolor)
-            if no_scroll:
-                scroll_direction = -1
-            watch.wgl._set_screen(None, app.appinfo.current_screen, direction=scroll_direction)
+            if cscreen is not None and scroll < 0:
+                cscreen._clear_screen(app.appinfo.current_screen.bgcolor)
+            watch.wgl._set_screen(None, app.appinfo.current_screen, direction=scroll)
             watch.display.mute(False)
         else:
             self.app = app
@@ -336,7 +325,7 @@ class Manager():
                     i = 0
             else:
                 i = 0
-            self.switch(app_list[i])
+            self.switch(app_list[i], scroll=direction)
         elif direction == EventType.RIGHT:
             if self.app in app_list:
                 i = app_list.index(self.app) - 1
@@ -344,15 +333,15 @@ class Manager():
                     i = len(app_list)-1
             else:
                 i = 0
-            self.switch(app_list[i])
+            self.switch(app_list[i], scroll=direction)
         elif direction == EventType.UP:
-            self.switch(self.launcher)
+            self.switch(self.launcher, scroll=direction)
         elif direction == EventType.DOWN:
             if self.app != app_list[0]:
-                self.switch(app_list[0])
+                self.switch(app_list[0], scroll=direction)
             else:
                 if len(self.notifications):
-                    self.switch(self.notifier)
+                    self.switch(self.notifier, scroll=direction)
                 else:
                     # Nothing to notify... we must handle that here
                     # otherwise the display will flicker.
@@ -360,7 +349,7 @@ class Manager():
 
         elif direction == EventType.HOME or direction == EventType.BACK:
             if self.app != app_list[0]:
-                self.switch(app_list[0])
+                self.switch(app_list[0], scroll=EventType.UP)
             else:
                 self.sleep()
 

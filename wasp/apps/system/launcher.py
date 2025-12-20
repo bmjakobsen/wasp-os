@@ -52,7 +52,7 @@ class LauncherApp():
 
 
     def __init__(self):
-        self.appinfo = wasp.watch.wgl.create_appinfo(in_scroll=(False, DIRECTION_UP), out_scroll=(True, DIRECTION_DOWN))
+        self.appinfo = wasp.watch.wgl.create_appinfo()
 
     def background(self):
         self.appinfo.free()

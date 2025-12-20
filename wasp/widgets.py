@@ -366,7 +366,7 @@ class Checkbox():
         self._icon_cb = watchgl.create_wasp_image_stream(icons.checkbox)
     @property
     def label(self):
-        return self._im[2]
+        return self._im[3]
 
     def draw(self):
         """Draw the checkbox and label."""

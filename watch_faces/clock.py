@@ -58,7 +58,7 @@ class ClockApp():
     NAME = 'Clock'
 
     def __init__(self):
-        self.appinfo = wasp.watch.wgl.create_appinfo(in_scroll=(True, DIRECTION_DOWN), out_scroll=(True, DIRECTION_UP))
+        self.appinfo = wasp.watch.wgl.create_appinfo()
 
     def foreground(self, _preview:bool=False):
         """Activate the application.
@@ -116,7 +116,7 @@ class ClockApp():
 
     def preview(self):
         """Provide a preview for the watch face selection."""
-        self.foreground()
+        self.foreground(_preview=True)
         r = wasp.system.bar.clock
         wasp.system.bar.clock = False
         self._update()
