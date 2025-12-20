@@ -294,7 +294,7 @@ class Button():
         if type(frame) == str:
             frame = wasp.system.theme(frame)
         if type(txt) == str:
-            txt = wasp.system.theme(frame)
+            txt = wasp.system.theme(txt)
         new_colors = (bg, frame, txt)
 
         if new_colors == self._rcolors:
@@ -309,8 +309,7 @@ class Button():
         x, y, w, h, label = self._im
         wgl.fill(bg, x, y, w, h)
 
-        wgl.fill(bg, 0, 0, w, h)
-        wgl.draw_string_a(txt, bg, label, 2, h//2-12, width=w-4, align=watchgl.ALIGNMENT_CENTER, font=fonts.sans24)
+        wgl.draw_string_a(txt, bg, label, x+2, y+h//2-12, width=w-4, align=watchgl.ALIGNMENT_CENTER, font=fonts.sans24)
         wgl.fill(frame, x, y, w, 2)
         wgl.fill(frame, x, y+h-2, w, 2)
         wgl.fill(frame, x, y+2, 2, h-4)

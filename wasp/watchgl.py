@@ -881,7 +881,7 @@ class AutoFormatImageStream():
     def set_auto_content(self, raw_data):
         if len(raw_data) == 3:
             mode = 'rle1'
-            raw, width, height = raw_data
+            width, height, raw = raw_data
         else:
             mode = 'rle2'
             raw = raw_data[3:]
@@ -918,7 +918,7 @@ class AutoFormatImageStream():
 
 def create_wasp_image_stream(raw_data):
     if len(raw_data) == 3:
-        return WaspRle1ImageStream(raw_data[0], raw_data[1], raw_data[2])
+        return WaspRle1ImageStream(raw_data[2], raw_data[0], raw_data[1])
     else:
         return WaspRle2ImageStream(raw_data[3:], raw_data[1], raw_data[2])
 
