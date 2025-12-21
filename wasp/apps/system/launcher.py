@@ -16,12 +16,13 @@ from watchgl import create_wasp_image_stream, Screen, WglAppInfo, DIRECTION_UP, 
 _PAGE_COORD_MAP = (("a0", 0,0), ("a1", 120, 0), ("a2", 0, 120), ("a3", 120, 120))
 _icon_stream = AutoFormatImageStream()
 def _draw_function(screen:'Screen', wgl, draw_info):
-    updated_groups, stripe_start, stripe_width = draw_info
-    stripe_end = stripe_start + stripe_width
+    update_groups = draw_info['groups']
+    stripe_start = draw_info['vstripe_start']
+    stripe_end = draw_info['vstripe_end']
     scroll = screen.get_var('scroller')
     updated_already = False
     for i in range(4):
-        if updated_groups&(1<<i) == 0:
+        if update_groups&(1<<i) == 0:
             continue
         si,x,y = _PAGE_COORD_MAP[i]
         if stripe_end < y or stripe_start >= y+120:

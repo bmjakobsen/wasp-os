@@ -936,7 +936,7 @@ class WglAppInfo():
         :param bgcolor: Background Color for the screen
         :type bgcolor: int
         :param draw_function: Function that is called to draw the component
-        :type draw_function: Callable[[Screen, WatchGraphics, Tuple[int, int, int]], None]
+        :type draw_function: Callable[[Screen, WatchGraphics, Dict[str, int]], None]
         :param vars: Definition of used Variables, as a dictionary
         :type vars: Dict[str, int]
         :param font: Default font for the screen, can be changed during the draw method, defaults to fonts.sans24
@@ -1008,7 +1008,9 @@ class Screen():
         self._screen_info[_SC_MAX_AHEAD] = display_spec.vscroll_stripe_size
 
         self._draw_function = draw_function
-        self._update_info = UPDATE_GROUPS_ALL
+        self._update_groups = UPDATE_GROUPS_ALL
+        self._draw_info = { 'groups': 0, 'vstripe_start': -1, 'vstripe_end': 900 }
+        self._draw_info_s = { 'groups': UPDATE_GROUPS_ALL, 'vstripe_start': -1, 'vstripe_end': 900 }
         self._var_lookup:dict[str, int] = {}
         self._var_array:list = []
         for k, v in vars.items():
@@ -1028,23 +1030,24 @@ class Screen():
         current_value = self._var_array[i+1]
         if changed or current_value != value:
             self._var_array[i+1] = value
-            self._update_info |= (1<<update_index)
+            self._update_groups |= (1<<update_index)
 
     def draw(self, full:bool=False):
         wgl = self._wgl
 
 
         bgcolor = self.bgcolor
+        draw_info = self._draw_info
         if full:
-            draw_info = (UPDATE_GROUPS_ALL, -1, 999)
+            draw_info['groups'] = UPDATE_GROUPS_ALL
         else:
-            draw_info = (self._update_info, -1, 999)
+            draw_info['groups'] = self._update_groups
         wgl._set_screen_context(bgcolor, self._font, redraw_widgets=full)
 
 
         df = self._draw_function
         df(self, wgl, draw_info)
-        self._update_info = 0
+        self._update_groups = 0
         wgl.redraw_widgets = False
 
     def _draw_scroll(self, scroll_direction:int):
@@ -1086,6 +1089,7 @@ class Screen():
             CDL_OFFSET_FACTOR = -1
 
         draw_function = self._draw_function
+        draw_info = self._draw_info_s
 
         wgl._set_screen_context(bgcolor, self._font, redraw_widgets=True)
 
@@ -1112,7 +1116,8 @@ class Screen():
             fill(bgcolor, 0, current_draw_line+CDL_OFFSET, WIDTH, stripe_size)
 
             set_stripe_context(self._font, current_draw_line+CDL_OFFSET, stripe_size, 0-ypos)
-            draw_info = (UPDATE_GROUPS_ALL, ypos, stripe_size)
+            draw_info['vstripe_start'] = ypos
+            draw_info['vstripe_end'] = ypos+stripe_size
             draw_function(self, wgl, draw_info)
             draw_remaining -= stripe_size
             current_draw_line += (0-1)*SCROLL_D*VSCROLL_STRIPE_SIZE

@@ -28,8 +28,9 @@ MONTH = 'JanFebMarAprMayJunJulAugSepOctNovDec'
 
 def _draw_function(screen:'Screen', wgl, draw_info):
     global DIGITS, DIGITS_COLON
-    update_groups, stripe_start, stripe_width = draw_info
-    stripe_end = stripe_start + stripe_width
+    update_groups = draw_info['groups']
+    stripe_start = draw_info['vstripe_start']
+    stripe_end = draw_info['vstripe_end']
     hilo =  (wasp.system.theme('mid'), wasp.system.theme('bright'))
     mid = wasp.watch.drawable.lighten(hilo[0], 1)
     already_updated = False
