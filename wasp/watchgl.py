@@ -1037,12 +1037,10 @@ class Screen():
         bgcolor = self.bgcolor
         if full:
             draw_info = (UPDATE_GROUPS_ALL, -1, 999)
-            wgl.redraw_widgets = True
         else:
             draw_info = (self._update_info, -1, 999)
-            wgl.redraw_widgets = False
+        wgl._set_screen_context(bgcolor, self._font, redraw_widgets=full)
 
-        wgl._set_screen_context(bgcolor, self._font)
 
         df = self._draw_function
         df(self, wgl, draw_info)
@@ -1051,7 +1049,6 @@ class Screen():
 
     def _draw_scroll(self, scroll_direction:int):
         wgl = self._wgl
-        wgl.redraw_widgets = True
         fill = wgl._fill_uw
         sleep_ms = time.sleep_ms            # type: ignore[attr-defined]
         ticks_ms = time.ticks_ms            # type: ignore[attr-defined]
@@ -1082,20 +1079,18 @@ class Screen():
         ypos:int = 0-VSCROLL_STRIPE_SIZE                            # Position on screen object being drawn in
         SCROLL_D:int = -1
         CDL_OFFSET_FACTOR:int = 0
-        YPOS_CHANGE:int = VSCROLL_STRIPE_SIZE
         if scroll_direction == DIRECTION_DOWN:
             current_draw_line = 0
             ypos = HEIGHT
             SCROLL_D = 1
             CDL_OFFSET_FACTOR = -1
-            YPOS_CHANGE = 0-VSCROLL_STRIPE_SIZE
 
         draw_function = self._draw_function
 
-        wgl._set_screen_context(bgcolor, self._font)
+        wgl._set_screen_context(bgcolor, self._font, redraw_widgets=True)
+
 
         while draw_remaining > 0:
-            ypos += YPOS_CHANGE
             # Scroll if there isnt enough buffer space ahead
             while ahead+VSCROLL_STRIPE_SIZE > MAX_AHEAD:
                 if int(ticks_diff(scroll_next_pixel, ticks_ms())) > 0:
@@ -1108,6 +1103,11 @@ class Screen():
                 vscroll(0-SCROLL_D)
 
             stripe_size = VSCROLL_STRIPE_SIZE if draw_remaining >= VSCROLL_STRIPE_SIZE else draw_remaining
+            #This is needed else there are some small glitches in the highest/lowest points on the the screen when scrolling
+            if SCROLL_D == 1:
+                ypos += 0-stripe_size
+            else:
+                ypos += VSCROLL_STRIPE_SIZE
             CDL_OFFSET = CDL_OFFSET_FACTOR*stripe_size
             fill(bgcolor, 0, current_draw_line+CDL_OFFSET, WIDTH, stripe_size)
 
@@ -1127,7 +1127,7 @@ class Screen():
                 sleep_ms(1)
 
         #wgl.redraw_widgets = False
-        #self.draw(full=True)
+        self.draw(full=True)
         wgl.redraw_widgets = False
 
     def _clear_screen(self, color):
@@ -1216,8 +1216,8 @@ class WatchGraphics():
     def _set_bgcolor(self, bgcolor:int):
         self.bgcolor = bgcolor
 
-    def _set_screen_context(self, bgcolor:int, font):
-        self.redraw_widgets = False
+    def _set_screen_context(self, bgcolor:int, font, redraw_widgets:bool=False):
+        self.redraw_widgets = redraw_widgets
         self.set_font(font)
         self._set_bgcolor(bgcolor)
         self._set_window(0, 0, self._display_width, self._display_height, 0)

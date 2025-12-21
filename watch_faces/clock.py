@@ -40,7 +40,7 @@ def _draw_function(screen:'Screen', wgl, draw_info):
     if update_groups&(1<<6):
         bar = screen.get_var('bar')
         if stripe_start < (0+32) and stripe_end >= 0:
-            bar.draw()
+            bar.update()
     for si, i, x in (('h0', 0, 0), ('h1', 1, 48), ('m0', 2, 144), ('m1', 3, 192)):
         if not update_groups&(1<<i):
             continue
@@ -82,7 +82,7 @@ class ClockApp():
     def _update(self):
         bar = self._bar
         bar.clock = False
-        now = bar.update()
+        now = bar.check_time()
         if now is None:
             return
         s = self.appinfo.screens[0]
@@ -117,11 +117,8 @@ class ClockApp():
     def preview(self):
         """Provide a preview for the watch face selection."""
         self.foreground(_preview=True)
-        r = wasp.system.bar.clock
-        wasp.system.bar.clock = False
         self._update()
         self.background()
-        wasp.system.bar.clock = r
 
     def _day_string(self, now):
         """Produce a string representing the current day"""

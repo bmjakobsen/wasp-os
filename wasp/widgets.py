@@ -97,6 +97,12 @@ class Clock():
         """
         self.update(_redraw=True)
 
+    def check_time(self):
+        now = wasp.watch.rtc.get_localtime()
+        if self.on_screen == now:
+            return None
+        return now
+
     def update(self, _redraw=False):
         """Update the clock widget if needed.
 
@@ -109,10 +115,10 @@ class Clock():
         if _redraw or _wgl.redraw_widgets:
             self.on_screen = None
 
-        now = wasp.watch.rtc.get_localtime()
+        now = self.check_time()
+        if not now:
+            return
         on_screen = self.on_screen
-        if on_screen and on_screen == now:
-            return None
 
         if self.enabled and (not on_screen
                 or now[4] != on_screen[4] or now[3] != on_screen[3]):
@@ -204,17 +210,24 @@ class StatusBar():
         self._meter.draw()
         self._notif.draw()
 
-    def update(self):
-        if _wgl.redraw_widgets:
-            self.draw()
+    def check_time(self):
+        now = self._clock.check_time()
+        return now
 
+    def update(self):
         """Lazily update the status bar.
 
         :returns: An time tuple if the time has changed since the last call,
                   None otherwise.
         """
+
+        if _wgl.redraw_widgets:
+            self.draw()
+            return
+
         now = self._clock.update()
         if now:
+            self._clock.update()
             self._meter.update()
             self._notif.update()
         return now
