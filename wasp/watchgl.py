@@ -1565,7 +1565,6 @@ class WatchGraphics():
 
 
     # Get bounding box of a string drawn on the screen
-    #@micropython.native
     def string_bounding_box(self, s:str, font=None) -> tuple[int, int]:
         """Calculate the bounding box of a string
 
@@ -1592,8 +1591,6 @@ class WatchGraphics():
 
 
     # Draw string to the screen at position, sadly cant be viper as it doesnt
-    #Temporarily Non-Native
-    #@micropython.native
     def draw_string(self, color:int, bgcolor:int, s:str, x:int, y:int, font=None):
         """Draw a String with a given FG and BG Color,
 

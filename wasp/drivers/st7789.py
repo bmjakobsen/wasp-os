@@ -376,7 +376,7 @@ class ST7789_SPI(ST7789):
         sleep_ms(125)
 
     #Temporarily Non-Native
-    #@micropython.viper
+    @micropython.viper
     def write_cmd(self, cmd:int):
         """Send a command opcode to the display.
 
@@ -385,8 +385,8 @@ class ST7789_SPI(ST7789):
         """
         dc = self.dc
         cs = self.cs
-        #c:ptr8 = ptr8(self.cmd)
-        c:memoryview = self.cmd
+        c:ptr8 = ptr8(self.cmd)
+        #c:memoryview = self.cmd
 
         dc(0)
         cs(0)
