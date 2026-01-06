@@ -88,8 +88,8 @@ class ST7789(object):
             #(_INVOFF,   None), # Results in odd palette
             (_INVON,   None),
             (_NORON,   None),
-            (_VSCRDEF,   self.vscrdef),
-            (_VSCSAD,    self.vscsad)
+        #    (_VSCRDEF,   self.vscrdef),
+        #    (_VSCSAD,    self.vscsad)
         ):
             self.write_cmd(cmd[0])
             if not cmd[1] is None:

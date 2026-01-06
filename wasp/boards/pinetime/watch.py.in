@@ -18,6 +18,7 @@ import os
 import time
 
 import draw565
+import watchgl
 
 from machine import I2C
 from machine import Pin
@@ -67,7 +68,9 @@ display = ST7789_SPI(240, 240, spi,
         cs=Pin("DISP_CS", Pin.OUT),
         dc=Pin("DISP_DC", Pin.OUT),
         res=Pin("DISP_RST", Pin.OUT))
-drawable = draw565.Draw565(display)
+display.spec = watchgl.DisplaySpec(display.width, display.height, scroll_directions=frozenset([watchgl.DIRECTION_UP, watchgl.DIRECTION_DOWN]), vscroll_stripe_size=(320-display.height))
+wgl = watchgl.WatchGraphics(display)
+drawable = draw565.Draw565(wgl)
 
 def boot_msg(s):
     drawable.string(s, 0, 108, width=240)
