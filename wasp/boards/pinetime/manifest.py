@@ -24,6 +24,7 @@ freeze('../..', manifest_240x240.manifest + manifest_user_apps.manifest +
         'ppg.py',
         'shell.py',
         'wasp.py',
+#        'watchgl2.py',
     ),
     opt=3
 )

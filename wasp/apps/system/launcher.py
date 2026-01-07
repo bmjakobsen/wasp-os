@@ -21,6 +21,9 @@ class LauncherApp():
 
     def foreground(self):
         """Activate the application."""
+        #wasp.watch.drawable.string("LOAD WATCHGL", 0, 108, width=240)
+        #import watchgl2
+        #wasp.watch.drawable.string("LOADED WATCHGL", 0, 108, width=240)
         self._page = 0
         self._draw()
         wasp.system.request_event(wasp.EventMask.TOUCH |
